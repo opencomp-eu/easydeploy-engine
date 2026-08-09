@@ -1,0 +1,19 @@
+[project]
+name = "easydeploy-engine"
+version = "0.1.0"
+description = "Shared Caddy and network orchestration for Easy Deploy kits on one VPS"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q --tb=short"

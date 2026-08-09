@@ -1,0 +1,24 @@
+---
+services:
+  caddy:
+    container_name: easydeploy_caddy
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ${EDE_CADDYFILE}:/etc/caddy/Caddyfile:ro
+      - easydeploy_caddy_data:/data
+      - easydeploy_caddy_config:/config
+    networks:
+      - easydeploy-net
+
+networks:
+  easydeploy-net:
+    name: easydeploy-net
+
+volumes:
+  easydeploy_caddy_data:
+  easydeploy_caddy_config:

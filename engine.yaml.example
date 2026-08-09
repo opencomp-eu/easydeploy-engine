@@ -1,0 +1,19 @@
+# easydeploy-engine — operator configuration
+# Copy to engine.yaml and run: bash apply.sh
+
+engine:
+  network: easydeploy-net
+
+services:
+  authelia:
+    enabled: false
+    path: ../authelia-easy-deploy
+    fragment: .authelia-easy-deploy/integration/caddy.caddy
+  opencloud:
+    enabled: false
+    path: ../opencloud-easy-deploy
+    fragment: .opencloud-easy-deploy/integration/caddy.caddy
+  matrix:
+    enabled: false
+    path: ../matrix-easy-deploy
+    fragment: .matrix-easy-deploy/integration/caddy.caddy

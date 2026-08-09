@@ -1,0 +1,12 @@
+# Generated state
+.easydeploy-engine/
+caddy/Caddyfile
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Editor
+.idea/
+.vscode/
