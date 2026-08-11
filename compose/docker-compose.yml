@@ -17,6 +17,7 @@ services:
 
 networks:
   easydeploy-net:
+    external: true
     name: easydeploy-net
 
 volumes:

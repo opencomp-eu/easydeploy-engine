@@ -13,6 +13,7 @@ import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 COMPOSE_DIR = PROJECT_ROOT / "compose"
+COMPOSE_PROJECT_NAME = "easydeploy-engine"
 STATE_DIR = PROJECT_ROOT / ".easydeploy-engine"
 COMPOSE_ENV_PATH = STATE_DIR / "compose.env"
 ENGINE_PATH = PROJECT_ROOT / "engine.yaml"
@@ -160,6 +161,7 @@ def docker_compose_cmd() -> list[str]:
 def run_compose(*args: str) -> None:
     cmd = docker_compose_cmd() + ["-f", str(COMPOSE_DIR / "docker-compose.yml"), *args]
     env = os.environ.copy()
+    env["COMPOSE_PROJECT_NAME"] = COMPOSE_PROJECT_NAME
     if COMPOSE_ENV_PATH.is_file():
         for line in COMPOSE_ENV_PATH.read_text().splitlines():
             if not line or line.startswith("#") or "=" not in line:

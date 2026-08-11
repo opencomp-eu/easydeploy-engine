@@ -15,6 +15,13 @@ def test_validate_engine_requires_enabled_service(tmp_path: Path):
         validate_engine(config)
 
 
+def test_compose_project_name_is_unique():
+    from scripts.apply import COMPOSE_PROJECT_NAME
+
+    assert COMPOSE_PROJECT_NAME == "easydeploy-engine"
+    assert COMPOSE_PROJECT_NAME != "compose"
+
+
 def test_collect_and_render_fragments(tmp_path: Path):
     kit = tmp_path / "authelia"
     frag = kit / ".authelia-easy-deploy" / "integration"

@@ -9,7 +9,7 @@
 
 1. Create `engine.yaml` and enable services.
 2. Set each kit `proxy.mode: integrate` in `deploy.yaml`.
-3. `bash apply.sh` in **Authelia** (and later OpenCloud, Matrix when supported).
+3. `bash apply.sh` in **Authelia**, then **OpenCloud** (integrate mode), then other kits as they gain integrate support.
 4. `bash apply.sh` in **easydeploy-engine**.
 5. After changing domains or adding a service: re-apply the kit, then re-apply the engine.
 
@@ -31,6 +31,7 @@ Still configured per kit (`deploy.yaml`). The engine does not merge OIDC setting
 
 | Symptom | Check |
 |--------|--------|
+| Engine removes Authelia containers | Both kits used Compose project name `compose` (directory basename). Fixed: unique `COMPOSE_PROJECT_NAME` per kit. Re-apply Authelia, then engine. |
 | Engine apply: missing fragment | Run kit `apply.sh` with `integrate` mode first |
 | :443 already in use | Stop standalone `authelia_caddy` / Matrix `caddy` / OpenCloud Caddy |
 | 502 from Caddy | Kit container on `easydeploy-net`? `docker network inspect easydeploy-net` |
