@@ -32,6 +32,7 @@ Still configured per kit (`deploy.yaml`). The engine does not merge OIDC setting
 | Symptom | Check |
 |--------|--------|
 | Engine removes Authelia containers | Both kits used Compose project name `compose` (directory basename). Fixed: unique `COMPOSE_PROJECT_NAME` per kit. Re-apply Authelia, then engine. |
+| `SSL_ERROR_INTERNAL_ERROR_ALERT` on a new domain | Caddy was not reloaded after adding a kit fragment. Run `bash apply.sh` in easydeploy-engine (reloads Caddy), or `docker exec easydeploy_caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile`. Also confirm DNS A/AAAA for that domain. |
 | Engine apply: missing fragment | Run kit `apply.sh` with `integrate` mode first |
 | :443 already in use | Stop standalone `authelia_caddy` / Matrix `caddy` / OpenCloud Caddy |
 | 502 from Caddy | Kit container on `easydeploy-net`? `docker network inspect easydeploy-net` |

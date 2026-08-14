@@ -198,6 +198,34 @@ def apply_engine(*, skip_runtime: bool = False, skip_pull: bool = False) -> None
 
     print("Starting shared Caddy…")
     run_compose("up", "-d", "--wait", "--remove-orphans")
+    reload_caddy()
+
+
+def reload_caddy() -> None:
+    """Apply Caddyfile changes; running containers do not pick up bind-mount edits automatically."""
+    if subprocess.run(["docker", "inspect", "easydeploy_caddy"], capture_output=True).returncode != 0:
+        return
+    result = subprocess.run(
+        [
+            "docker",
+            "exec",
+            "easydeploy_caddy",
+            "caddy",
+            "reload",
+            "--config",
+            "/etc/caddy/Caddyfile",
+            "--adapter",
+            "caddyfile",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        print("Reloaded Caddy configuration.")
+        return
+    detail = (result.stderr or result.stdout or "unknown error").strip()
+    print(f"Caddy reload failed ({detail}); recreating container…", file=sys.stderr)
+    run_compose("up", "-d", "--force-recreate", "--wait", "caddy")
 
     print()
     print("=== Easy Deploy Engine summary ===")

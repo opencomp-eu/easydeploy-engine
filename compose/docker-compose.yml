@@ -4,6 +4,14 @@ services:
     container_name: easydeploy_caddy
     image: caddy:2-alpine
     restart: unless-stopped
+    command:
+      - caddy
+      - run
+      - --config
+      - /etc/caddy/Caddyfile
+      - --adapter
+      - caddyfile
+      - --watch
     ports:
       - "80:80"
       - "443:443"
