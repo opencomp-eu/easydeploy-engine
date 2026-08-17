@@ -62,6 +62,8 @@ def test_emit_wizard_discover(tmp_path: Path):
     assert "OPENCLOUD_ORCHESTRATE=y" in text
     assert "MATRIX_FOUND=n" in text
     assert "MATRIX_ORCHESTRATE=y" in text
+    assert "STALWART_FOUND=n" in text
+    assert "STALWART_ORCHESTRATE=y" in text
 
 
 def test_set_proxy_integrate_writes_mode(tmp_path: Path):
@@ -115,6 +117,7 @@ def test_update_from_wizard_enables_and_drops_apply_kits(tmp_path: Path):
     assert data["services"]["authelia"]["path"] == "../authelia-easy-deploy"
     assert data["services"]["opencloud"]["enabled"] is True
     assert data["services"]["matrix"]["enabled"] is False
+    assert data["services"]["stalwart"]["enabled"] is False
 
 
 def _git_commit(repo: Path) -> None:

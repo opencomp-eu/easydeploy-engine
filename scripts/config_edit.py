@@ -50,6 +50,15 @@ KIT_CATALOG: tuple[dict[str, Any], ...] = (
         "orchestrate": True,
         "branch": DEFAULT_KIT_BRANCH,
     },
+    {
+        "name": "stalwart",
+        "dirname": "stalwart-easy-deploy",
+        "repo": "https://github.com/opencomp-eu/stalwart-easy-deploy.git",
+        "fragment": ".stalwart-easy-deploy/integration/caddy.caddy",
+        "label": "Stalwart",
+        "orchestrate": True,
+        "branch": DEFAULT_KIT_BRANCH,
+    },
 )
 
 WIZARD_NAME = "wizard.sh"

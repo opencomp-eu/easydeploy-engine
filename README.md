@@ -16,7 +16,7 @@ bash wizard.sh
 
 The wizard can:
 
-1. Clone Authelia, OpenCloud, and/or Matrix next to this repo (if they are not already there), or **update existing checkouts** to `engine.kit_branch`, with `git clone --recurse-submodules --branch <branch>`.
+1. Clone Authelia, OpenCloud, Matrix, and/or Stalwart next to this repo (if they are not already there), or **update existing checkouts** to `engine.kit_branch`, with `git clone --recurse-submodules --branch <branch>`.
 2. Run each kit’s `wizard.sh` (domains, admin user, …).
 3. Switch those kits to `proxy.mode: integrate`.
 4. Apply Authelia then apps, wire OpenCloud and Matrix OIDC sidecars, and start shared Caddy.
@@ -35,7 +35,7 @@ Same model as a kit: desired state in YAML, `apply.sh` converges.
 git clone --recurse-submodules https://github.com/opencomp-eu/easydeploy-engine.git
 cd easydeploy-engine
 cp engine.yaml.example engine.yaml
-# enable authelia + opencloud + matrix in engine.yaml
+# enable authelia + opencloud + matrix + stalwart in engine.yaml
 
 # One-time: clone kits so you can copy examples (or let the first apply.sh clone them)
 bash apply.sh --ensure-dependencies   # fails until deploy YAML exists — that's ok
@@ -43,6 +43,7 @@ bash apply.sh --ensure-dependencies   # fails until deploy YAML exists — that'
 cp ../authelia-easy-deploy/deploy.yaml.example kits/authelia.yaml
 cp ../opencloud-easy-deploy/deploy.yaml.example kits/opencloud.yaml
 cp ../matrix-easy-deploy/deploy.yaml.example kits/matrix.yaml
+cp ../stalwart-easy-deploy/deploy.yaml.example kits/stalwart.yaml
 # edit domains, users, auth in kits/*.yaml  (do not commit secrets)
 
 bash apply.sh
@@ -63,7 +64,7 @@ If `kits/<name>.yaml` is absent, the kit’s own `deploy.yaml` is used — so yo
 
 ## Kit contract
 
-A kit the engine can clone and run looks like this (Authelia, OpenCloud, and Matrix already do):
+A kit the engine can clone and run looks like this (Authelia, OpenCloud, Matrix, and Stalwart already do):
 
 | File | Role |
 |------|------|
@@ -78,6 +79,7 @@ Checkout layout (siblings of this repo), cloned on `engine.kit_branch` (default 
 - `../authelia-easy-deploy` ← `https://github.com/opencomp-eu/authelia-easy-deploy.git`
 - `../opencloud-easy-deploy` ← `https://github.com/opencomp-eu/opencloud-easy-deploy.git`
 - `../matrix-easy-deploy` ← `https://github.com/opencomp-eu/matrix-easy-deploy.git`
+- `../stalwart-easy-deploy` ← `https://github.com/opencomp-eu/stalwart-easy-deploy.git`
 
 ## `engine.yaml`
 

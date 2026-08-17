@@ -19,7 +19,7 @@ print_banner() {
 usage() {
 	echo "Usage: bash wizard.sh [--branch <name>]"
 	echo
-	echo "Clones or updates Authelia / OpenCloud / Matrix next to the engine (git clone"
+	echo "Clones or updates Authelia / OpenCloud / Matrix / Stalwart next to the engine (git clone"
 	echo "--recurse-submodules --branch <name>), runs each kit's wizard.sh,"
 	echo "switches them to proxy.mode: integrate, and applies Authelia → apps →"
 	echo "shared Caddy."
@@ -100,12 +100,12 @@ main() {
 	echo "  clone siblings, run their wizards, share one Caddy."
 	echo
 
-	# AUTHELIA_FOUND, AUTHELIA_PATH, AUTHELIA_REPO, OPENCLOUD_*, MATRIX_*
+	# AUTHELIA_FOUND, AUTHELIA_PATH, AUTHELIA_REPO, OPENCLOUD_*, MATRIX_*, STALWART_*
 	refresh_discover
 
-	local enable_authelia="n" enable_opencloud="n" enable_matrix="n"
+	local enable_authelia="n" enable_opencloud="n" enable_matrix="n" enable_stalwart="n"
 	local wire_oidc="n" authz_policy="two_factor" proceed
-	local authelia_git="" opencloud_git="" matrix_git=""
+	local authelia_git="" opencloud_git="" matrix_git="" stalwart_git=""
 
 	echo -e "${BOLD}  Services on this VPS${RESET}"
 	if [[ "${AUTHELIA_FOUND}" == "y" ]]; then
@@ -135,12 +135,21 @@ main() {
 		info "Matrix is not cloned (will clone ${MATRIX_REPO})."
 		ask_yn enable_matrix "Enable Matrix?" "n"
 	fi
+	if [[ "${STALWART_FOUND}" == "y" ]]; then
+		if [[ "${STALWART_HAS_DEPLOY}" != "y" ]]; then
+			info "Found ${STALWART_PATH} — will run its wizard.sh (no deploy.yaml yet)."
+		fi
+		ask_yn enable_stalwart "Enable Stalwart (mail + Bulwark)?" "y"
+	else
+		info "Stalwart is not cloned (will clone ${STALWART_REPO})."
+		ask_yn enable_stalwart "Enable Stalwart (mail + Bulwark)?" "n"
+	fi
 
-	if [[ "${enable_authelia}" != "y" && "${enable_opencloud}" != "y" && "${enable_matrix}" != "y" ]]; then
+	if [[ "${enable_authelia}" != "y" && "${enable_opencloud}" != "y" && "${enable_matrix}" != "y" && "${enable_stalwart}" != "y" ]]; then
 		die "Enable at least one service."
 	fi
 
-	if [[ "${enable_authelia}" == "y" || "${enable_opencloud}" == "y" || "${enable_matrix}" == "y" ]]; then
+	if [[ "${enable_authelia}" == "y" || "${enable_opencloud}" == "y" || "${enable_matrix}" == "y" || "${enable_stalwart}" == "y" ]]; then
 		echo
 		echo -e "${BOLD}  Git clone${RESET}"
 		echo "  Enabled kits are cloned or updated: git fetch + checkout --recurse-submodules."
@@ -186,17 +195,21 @@ main() {
 	if [[ "${enable_matrix}" == "y" ]]; then
 		if [[ "${MATRIX_FOUND}" == "y" ]]; then matrix_git=" (update)"; else matrix_git=" (clone)"; fi
 	fi
+	if [[ "${enable_stalwart}" == "y" ]]; then
+		if [[ "${STALWART_FOUND}" == "y" ]]; then stalwart_git=" (update)"; else stalwart_git=" (clone)"; fi
+	fi
 
 	echo
 	echo -e "${BOLD}  Summary${RESET}"
 	echo "  Authelia:   ${enable_authelia}${authelia_git}"
 	echo "  OpenCloud:  ${enable_opencloud}${opencloud_git}"
 	echo "  Matrix:     ${enable_matrix}${matrix_git}"
+	echo "  Stalwart:   ${enable_stalwart}${stalwart_git}"
 	echo "  OIDC wire:  ${wire_oidc}"
 	if [[ "${wire_oidc}" == "y" ]]; then
 		echo "  Policy:     ${authz_policy}"
 	fi
-	if [[ "${enable_authelia}" == "y" || "${enable_opencloud}" == "y" || "${enable_matrix}" == "y" ]]; then
+	if [[ "${enable_authelia}" == "y" || "${enable_opencloud}" == "y" || "${enable_matrix}" == "y" || "${enable_stalwart}" == "y" ]]; then
 		echo "  Git:        --recurse-submodules --branch ${KIT_BRANCH}"
 	fi
 	echo
@@ -218,6 +231,9 @@ main() {
 	if [[ "${enable_matrix}" == "y" ]]; then
 		clone_kit matrix Matrix
 	fi
+	if [[ "${enable_stalwart}" == "y" ]]; then
+		clone_kit stalwart Stalwart
+	fi
 	refresh_discover
 
 	# Authelia first so OpenCloud / Matrix wizards can detect a local IdP.
@@ -236,6 +252,10 @@ main() {
 		run_kit_wizard "${SCRIPT_DIR}/${MATRIX_PATH}" "Matrix" "${MATRIX_HAS_DEPLOY}"
 		refresh_discover
 	fi
+	if [[ "${enable_stalwart}" == "y" ]]; then
+		run_kit_wizard "${SCRIPT_DIR}/${STALWART_PATH}" "Stalwart" "${STALWART_HAS_DEPLOY}"
+		refresh_discover
+	fi
 
 	uv run python - <<PY
 from scripts.config_edit import discover_kits, set_proxy_integrate, update_from_wizard
@@ -250,6 +270,8 @@ if ${enable_opencloud@Q} == "y":
     enabled.append("opencloud")
 if ${enable_matrix@Q} == "y":
     enabled.append("matrix")
+if ${enable_stalwart@Q} == "y":
+    enabled.append("stalwart")
 
 update_from_wizard(
     enabled=enabled,

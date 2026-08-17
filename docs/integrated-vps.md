@@ -16,7 +16,7 @@ Manual equivalent:
 1. Clone kits as siblings of the engine (or let the engine wizard clone them).
 2. Create `engine.yaml` and enable services.
 3. Set each kit `proxy.mode: integrate` in `deploy.yaml`.
-4. `bash apply.sh` in **Authelia**, then **OpenCloud** / **Matrix** (integrate mode).
+4. `bash apply.sh` in **Authelia**, then **OpenCloud** / **Matrix** / **Stalwart** (integrate mode).
 5. `bash apply.sh` in **easydeploy-engine**.
 6. After changing domains or adding a service: re-apply the kit, then re-apply the engine.
 
@@ -66,5 +66,5 @@ identity:
 | Engine removes Authelia containers | Both kits used Compose project name `compose` (directory basename). Fixed: unique `COMPOSE_PROJECT_NAME` per kit. Re-apply Authelia, then engine. |
 | `SSL_ERROR_INTERNAL_ERROR_ALERT` on a new domain | Caddy was not reloaded after adding a kit fragment. Run `bash apply.sh` in easydeploy-engine (reloads Caddy), or `docker exec easydeploy_caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile`. Also confirm DNS A/AAAA for that domain. |
 | Engine apply: missing fragment | Run kit `apply.sh` with `integrate` mode first |
-| :443 already in use | Stop standalone `authelia_caddy` / Matrix `caddy` / OpenCloud Caddy |
+| :443 already in use | Stop standalone `authelia_caddy` / Matrix `caddy` / OpenCloud Caddy / `stalwart_caddy` |
 | 502 from Caddy | Kit container on `easydeploy-net`? `docker network inspect easydeploy-net` |

@@ -37,3 +37,8 @@ services:
     path: ../matrix-easy-deploy
     fragment: .matrix-easy-deploy/integration/caddy.caddy
     # deploy: kits/matrix.yaml
+  stalwart:
+    enabled: false
+    path: ../stalwart-easy-deploy
+    fragment: .stalwart-easy-deploy/integration/caddy.caddy
+    # deploy: kits/stalwart.yaml
