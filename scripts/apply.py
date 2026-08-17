@@ -12,6 +12,13 @@ from pathlib import Path
 import yaml
 
 from scripts.oidc_wire import resolve_kit_path, to_bool, wire_identity
+from scripts.config_edit import (
+    KIT_CATALOG,
+    clone_named_kit,
+    kit_is_present,
+    load_kit_branch,
+    set_proxy_integrate,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 COMPOSE_DIR = PROJECT_ROOT / "compose"
@@ -75,6 +82,7 @@ def validate_engine(config: dict) -> list[dict]:
                 "name": name,
                 "path": Path(kit_path).expanduser(),
                 "fragment_rel": fragment_rel,
+                "deploy": entry.get("deploy"),
                 "oidc": entry.get("oidc") if isinstance(entry.get("oidc"), dict) else {},
             }
         )
@@ -174,6 +182,82 @@ def run_compose(*args: str) -> None:
     subprocess.run(cmd, cwd=COMPOSE_DIR, check=True, env=env)
 
 
+def resolve_operator_deploy(
+    name: str, deploy_field: object, project_root: Path = PROJECT_ROOT
+) -> Path | None:
+    """Return the engine-owned deploy.yaml to copy into a kit, if any.
+
+    Convention: kits/<name>.yaml is used when present, unless services.<name>.deploy
+    is set to a path or explicitly false.
+    """
+    if deploy_field is False:
+        return None
+    if isinstance(deploy_field, str) and str(deploy_field).strip().lower() in {"false", "no", "0"}:
+        return None
+    if isinstance(deploy_field, str) and deploy_field.strip():
+        path = Path(deploy_field.strip()).expanduser()
+        if not path.is_absolute():
+            path = (project_root / path).resolve()
+        return path
+    default = project_root / "kits" / f"{name}.yaml"
+    if default.is_file():
+        return default
+    return None
+
+
+def seed_kit_deploy(service: dict, project_root: Path = PROJECT_ROOT) -> Path:
+    """Copy operator YAML into the kit and force proxy.mode: integrate. Returns kit deploy.yaml."""
+    import shutil
+
+    kit_root = resolve_kit_path(service, project_root)
+    dest = kit_root / "deploy.yaml"
+    seed = resolve_operator_deploy(service["name"], service.get("deploy"), project_root)
+    if seed is not None:
+        if not seed.is_file():
+            raise FileNotFoundError(
+                f"services.{service['name']}.deploy not found: {seed}"
+            )
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(seed, dest)
+        print(f"Seeded {service['name']} deploy.yaml from {seed}")
+    if not dest.is_file():
+        raise FileNotFoundError(
+            f"Missing deploy.yaml for {service['name']} at {dest}.\n"
+            f"  Non-interactive: put operator config in kits/{service['name']}.yaml "
+            f"(or set services.{service['name']}.deploy) and re-run apply.sh.\n"
+            f"  Interactive: bash wizard.sh"
+        )
+    if set_proxy_integrate(kit_root):
+        print(f"Set proxy.mode: integrate on {dest}")
+    return dest
+
+
+def ensure_enabled_kits(
+    enabled: list[dict],
+    *,
+    project_root: Path = PROJECT_ROOT,
+    sync: bool = False,
+) -> None:
+    """Clone missing catalog kits (Authelia/OpenCloud). --sync-kits also updates existing checkouts."""
+    catalog = {item["name"]: item for item in KIT_CATALOG}
+    branch = load_kit_branch(project_root)
+    for service in enabled:
+        name = service["name"]
+        dest = resolve_kit_path(service, project_root)
+        present = kit_is_present(dest)
+        kit = catalog.get(name)
+        if present and not sync:
+            continue
+        if kit is None or not kit.get("orchestrate"):
+            if not present:
+                raise FileNotFoundError(
+                    f"services.{name}: kit not found at {dest}. Clone it next to the engine."
+                )
+            continue
+        result = clone_named_kit(name, project_root, branch=branch)
+        print(f"Kit {name}: {result} ({dest})")
+
+
 def run_kit_applies(enabled: list[dict]) -> None:
     """Re-apply kits so they merge OIDC sidecars. Authelia first, then others."""
     order = sorted(enabled, key=lambda item: (0 if item["name"] == "authelia" else 1, item["name"]))
@@ -187,12 +271,25 @@ def run_kit_applies(enabled: list[dict]) -> None:
         subprocess.run(["bash", str(apply_sh)], cwd=kit_root, check=True)
 
 
-def apply_engine(*, skip_runtime: bool = False, skip_pull: bool = False, apply_kits: bool = False) -> None:
+def apply_engine(
+    *,
+    skip_runtime: bool = False,
+    skip_pull: bool = False,
+    apply_kits: bool = True,
+    skip_kits: bool = False,
+    sync_kits: bool = False,
+) -> None:
     config = load_engine()
     enabled = validate_engine(config)
 
     identity = config.get("identity") or {}
-    should_apply_kits = apply_kits or to_bool(identity.get("apply_kits"))
+    should_apply_kits = (not skip_kits) and (apply_kits or to_bool(identity.get("apply_kits")))
+
+    if should_apply_kits:
+        ensure_enabled_kits(enabled, project_root=PROJECT_ROOT, sync=sync_kits)
+        for service in enabled:
+            seed_kit_deploy(service, PROJECT_ROOT)
+
     oidc_notes = wire_identity(config, enabled, PROJECT_ROOT)
     for line in oidc_notes:
         print(line)
@@ -268,16 +365,28 @@ def main() -> None:
     parser.add_argument("--skip-runtime", action="store_true")
     parser.add_argument("--skip-pull", action="store_true")
     parser.add_argument(
+        "--skip-kits",
+        action="store_true",
+        help="Only assemble Caddy and identity sidecars (do not clone, seed, or apply kits)",
+    )
+    parser.add_argument(
+        "--sync-kits",
+        action="store_true",
+        help="git fetch/checkout engine.kit_branch on existing kit clones before apply",
+    )
+    parser.add_argument(
         "--apply-kits",
         action="store_true",
-        help="After writing identity sidecars, re-run each kit apply.sh (used by wizard.sh)",
+        help="Deprecated: kit apply is now the default. Use --skip-kits to skip.",
     )
     args = parser.parse_args()
     try:
         apply_engine(
             skip_runtime=args.skip_runtime,
             skip_pull=args.skip_pull,
-            apply_kits=args.apply_kits,
+            apply_kits=True,
+            skip_kits=args.skip_kits,
+            sync_kits=args.sync_kits,
         )
     except (FileNotFoundError, ValueError, RuntimeError) as exc:
         print(f"Error: {exc}", file=sys.stderr)

@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from scripts.apply import collect_fragments, render_caddyfile, validate_engine
+from scripts.apply import (
+    collect_fragments,
+    render_caddyfile,
+    resolve_operator_deploy,
+    seed_kit_deploy,
+    validate_engine,
+)
 
 
 def test_validate_engine_requires_enabled_service(tmp_path: Path):
@@ -40,3 +46,42 @@ def test_collect_and_render_fragments(tmp_path: Path):
     caddy = render_caddyfile(fragments)
     assert "auth.test.example" in caddy
     assert "authelia-easy-deploy" in caddy
+
+
+def test_resolve_operator_deploy_uses_kits_dir(tmp_path: Path):
+    kits = tmp_path / "kits"
+    kits.mkdir()
+    (kits / "authelia.yaml").write_text("authelia: {}\n")
+    assert resolve_operator_deploy("authelia", None, tmp_path) == (kits / "authelia.yaml").resolve()
+    assert resolve_operator_deploy("opencloud", None, tmp_path) is None
+    assert resolve_operator_deploy("authelia", False, tmp_path) is None
+    assert resolve_operator_deploy("authelia", "custom.yaml", tmp_path) == (tmp_path / "custom.yaml").resolve()
+
+
+def test_seed_kit_deploy_copies_and_sets_integrate(tmp_path: Path):
+    import yaml
+
+    kit = tmp_path / "authelia-easy-deploy"
+    kit.mkdir()
+    seed = tmp_path / "kits" / "authelia.yaml"
+    seed.parent.mkdir()
+    seed.write_text("authelia:\n  domain: auth.example.com\nproxy:\n  type: caddy\n  mode: standalone\n")
+    service = {
+        "name": "authelia",
+        "path": kit,
+        "fragment_rel": ".authelia-easy-deploy/integration/caddy.caddy",
+        "deploy": None,
+    }
+    dest = seed_kit_deploy(service, tmp_path)
+    data = yaml.safe_load(dest.read_text())
+    assert dest == kit / "deploy.yaml"
+    assert data["authelia"]["domain"] == "auth.example.com"
+    assert data["proxy"]["mode"] == "integrate"
+
+
+def test_seed_kit_deploy_missing_yaml(tmp_path: Path):
+    kit = tmp_path / "opencloud-easy-deploy"
+    kit.mkdir()
+    service = {"name": "opencloud", "path": kit, "fragment_rel": "x", "deploy": None}
+    with pytest.raises(FileNotFoundError, match="kits/opencloud.yaml"):
+        seed_kit_deploy(service, tmp_path)

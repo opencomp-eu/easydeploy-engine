@@ -249,7 +249,7 @@ PY
 	success "Wrote ${ENGINE_YAML}"
 
 	info "Applying engine (kit stacks + shared Caddy + identity sidecars)…"
-	bash "${SCRIPT_DIR}/apply.sh" --apply-kits
+	bash "${SCRIPT_DIR}/apply.sh"
 
 	success "Engine wizard finished."
 	echo

@@ -25,7 +25,40 @@ The clone branch defaults to `feature/engine` (where the engine-aware kit change
 
 Re-run a kit `apply.sh`, then engine `apply.sh`, whenever a fragment or domain changes. Re-run `bash wizard.sh` to add a service.
 
-Power users can copy `engine.yaml.example` → `engine.yaml` and apply kits + engine by hand instead.
+Power users can skip the wizard: write `engine.yaml`, put each service’s `deploy.yaml` in `kits/`, and run `bash apply.sh`.
+
+## Non-interactive (YAML-first)
+
+Same model as a kit: desired state in YAML, `apply.sh` converges.
+
+```bash
+git clone --recurse-submodules https://github.com/opencomp-eu/easydeploy-engine.git
+cd easydeploy-engine
+cp engine.yaml.example engine.yaml
+# enable authelia + opencloud in engine.yaml
+
+# One-time: clone kits so you can copy examples (or let the first apply.sh clone them)
+bash apply.sh --ensure-dependencies   # fails until deploy YAML exists — that's ok
+
+cp ../authelia-easy-deploy/deploy.yaml.example kits/authelia.yaml
+cp ../opencloud-easy-deploy/deploy.yaml.example kits/opencloud.yaml
+# edit domains, users, auth in kits/*.yaml  (do not commit secrets)
+
+bash apply.sh
+```
+
+`apply.sh` then:
+
+1. Clones missing sibling kits on `engine.kit_branch` (`--sync-kits` also updates existing clones).
+2. Copies `kits/<name>.yaml` → `<kit>/deploy.yaml` when that file exists (override with `services.<name>.deploy`).
+3. Sets `proxy.mode: integrate` on each kit.
+4. Writes OIDC sidecars, applies Authelia then apps, starts shared Caddy.
+
+Later changes: edit `kits/opencloud.yaml` (or `engine.yaml`) and run `bash apply.sh` again.
+
+`--skip-kits` only reloads Caddy / identity sidecars without touching kit stacks.
+
+If `kits/<name>.yaml` is absent, the kit’s own `deploy.yaml` is used — so you can still keep config in each repo.
 
 ## Kit contract
 

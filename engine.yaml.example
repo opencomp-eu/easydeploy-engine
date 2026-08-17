@@ -1,10 +1,10 @@
 # easydeploy-engine — operator configuration
-# Prefer: bash wizard.sh  (clones Authelia/OpenCloud if needed, runs kit wizard.sh, applies)
-# Power user: copy to engine.yaml and run bash apply.sh
+# Interactive:  bash wizard.sh
+# Non-interactive: enable services below, put deploy.yaml files in kits/, run bash apply.sh
 
 engine:
   network: easydeploy-net
-  # Git branch used when the wizard clones sibling kits.
+  # Git branch used when apply.sh / wizard.sh clones sibling kits.
   # feature/engine until those changes land on main.
   kit_branch: feature/engine
 
@@ -24,10 +24,12 @@ services:
     enabled: false
     path: ../authelia-easy-deploy
     fragment: .authelia-easy-deploy/integration/caddy.caddy
+    # deploy: kits/authelia.yaml   # default when that file exists
   opencloud:
     enabled: false
     path: ../opencloud-easy-deploy
     fragment: .opencloud-easy-deploy/integration/caddy.caddy
+    # deploy: kits/opencloud.yaml
   matrix:
     enabled: false
     path: ../matrix-easy-deploy
