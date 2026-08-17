@@ -8,16 +8,18 @@ engine:
   # feature/engine until those changes land on main.
   kit_branch: feature/engine
 
-# Same-VPS Authelia ↔ OpenCloud OIDC. Sidecars are written into each kit's
+# Same-VPS Authelia ↔ OpenCloud / Matrix OIDC. Sidecars are written into each kit's
 # .*/integration/ directory (operator deploy.yaml is not rewritten).
 # Split VPS / external IdP: set wire: false, or auth.oidc.managed: false on OpenCloud,
-# or identity.consumers.opencloud.domain for a remote OpenCloud client on Authelia.
+# features.sso.managed: false on Matrix, or identity.consumers.<app>.domain for a remote client.
 identity:
   wire: auto
   authorization_policy: two_factor
   # consumers:
   #   opencloud:
   #     domain: cloud.other-vps.example   # Authelia-only host, remote OpenCloud
+  #   matrix:
+  #     domain: matrix.other-vps.example
 
 services:
   authelia:

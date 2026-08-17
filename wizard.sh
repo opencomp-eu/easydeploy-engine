@@ -156,12 +156,20 @@ main() {
 		KIT_BRANCH="${KIT_BRANCH:-${KIT_BRANCH_DEFAULT}}"
 	fi
 
-	if [[ "${enable_authelia}" == "y" && "${enable_opencloud}" == "y" ]]; then
+	if [[ "${enable_authelia}" == "y" && ( "${enable_opencloud}" == "y" || "${enable_matrix}" == "y" ) ]]; then
 		echo
 		echo -e "${BOLD}  Identity${RESET}"
-		ask_yn wire_oidc "Wire OpenCloud login through Authelia (recommended on one VPS)?" "y"
+		local wire_prompt="Wire login through Authelia (recommended on one VPS)?"
+		if [[ "${enable_opencloud}" == "y" && "${enable_matrix}" == "y" ]]; then
+			wire_prompt="Wire OpenCloud and Matrix login through Authelia (recommended on one VPS)?"
+		elif [[ "${enable_opencloud}" == "y" ]]; then
+			wire_prompt="Wire OpenCloud login through Authelia (recommended on one VPS)?"
+		else
+			wire_prompt="Wire Matrix login through Authelia (recommended on one VPS)?"
+		fi
+		ask_yn wire_oidc "${wire_prompt}" "y"
 		if [[ "${wire_oidc}" == "y" ]]; then
-			ask authz_policy "Authelia policy for OpenCloud: one_factor or two_factor" "two_factor"
+			ask authz_policy "Authelia policy: one_factor or two_factor" "two_factor"
 			authz_policy="${authz_policy,,}"
 			if [[ "${authz_policy}" != "one_factor" && "${authz_policy}" != "two_factor" ]]; then
 				die "authorization policy must be 'one_factor' or 'two_factor'"
@@ -212,7 +220,7 @@ main() {
 	fi
 	refresh_discover
 
-	# Authelia first so OpenCloud wizard can detect a local IdP.
+	# Authelia first so OpenCloud / Matrix wizards can detect a local IdP.
 	if [[ "${enable_authelia}" == "y" ]]; then
 		run_kit_wizard "${SCRIPT_DIR}/${AUTHELIA_PATH}" "Authelia" "${AUTHELIA_HAS_DEPLOY}"
 		refresh_discover

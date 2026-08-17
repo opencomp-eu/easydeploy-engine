@@ -32,29 +32,32 @@ DNS stays the same (`auth.yourdomain` → this host). Only the container serving
 
 ## OIDC
 
-When Authelia and OpenCloud are both enabled, the engine writes **integration sidecars** (it does not rewrite your `deploy.yaml` files):
+When Authelia and OpenCloud or Matrix are enabled, the engine writes **integration sidecars** (it does not rewrite your `deploy.yaml` files):
 
-- Authelia client: `<authelia>/.authelia-easy-deploy/integration/oidc-clients.d/opencloud.yaml`
+- Authelia client: `<authelia>/.authelia-easy-deploy/integration/oidc-clients.d/<id>.yaml`
 - OpenCloud IdP: `<opencloud>/.opencloud-easy-deploy/integration/oidc-provider.yaml`
+- Matrix MAS: `<matrix>/.matrix-easy-deploy/integration/oidc-provider.yaml`
 
 Apply order after enabling both (handled by `bash wizard.sh`):
 
 1. Kit apply (fragments + stacks)
 2. Engine apply (Caddy + OIDC sidecars)
-3. Authelia apply, then OpenCloud apply (consume sidecars)
+3. Authelia apply, then OpenCloud / Matrix apply (consume sidecars)
 
-**Same VPS, no YAML client block:** OpenCloud wizard asks “Use Authelia on this VPS?” when it finds `../authelia-easy-deploy/deploy.yaml`.
+**Same VPS, no YAML client block:** kit wizards ask “Use Authelia on this VPS?” when they find `../authelia-easy-deploy/deploy.yaml`.
 
-**Split VPS:** OpenCloud `deploy.yaml` keeps `auth.oidc` pointing at the remote Authelia issuer. On the Authelia host, either add the client in `deploy.yaml` or:
+**Split VPS:** OpenCloud `deploy.yaml` keeps `auth.oidc` pointing at the remote Authelia issuer; Matrix keeps `features.sso.provider: authelia`. On the Authelia host, either add the client in `deploy.yaml` or:
 
 ```yaml
 identity:
   consumers:
     opencloud:
       domain: cloud.other-vps.example
+    matrix:
+      domain: matrix.other-vps.example
 ```
 
-**Opt out of wiring:** `identity.wire: false`, or OpenCloud `auth.oidc.managed: false` / `provider: keycloak`.
+**Opt out of wiring:** `identity.wire: false`, OpenCloud `auth.oidc.managed: false` / `provider: keycloak`, or Matrix `features.sso.managed: false` / a non-Authelia provider list.
 
 ## Troubleshooting
 

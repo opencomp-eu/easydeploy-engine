@@ -19,7 +19,7 @@ The wizard can:
 1. Clone Authelia, OpenCloud, and/or Matrix next to this repo (if they are not already there), or **update existing checkouts** to `engine.kit_branch`, with `git clone --recurse-submodules --branch <branch>`.
 2. Run each kit’s `wizard.sh` (domains, admin user, …).
 3. Switch those kits to `proxy.mode: integrate`.
-4. Apply Authelia then apps, wire OpenCloud OIDC sidecars, and start shared Caddy.
+4. Apply Authelia then apps, wire OpenCloud and Matrix OIDC sidecars, and start shared Caddy.
 
 The clone branch defaults to `feature/engine` (where the engine-aware kit changes live today). After those land on `main`, set `engine.kit_branch: main` in `engine.yaml`, pass `--branch main`, or answer `main` in the wizard.
 
@@ -86,30 +86,34 @@ See [engine.yaml.example](engine.yaml.example). Each enabled service needs:
 - `path` — root of the kit checkout
 - `fragment` — relative path to the Caddy snippet (written by that kit’s apply)
 
-### OIDC wiring (Authelia + OpenCloud)
+### OIDC wiring (Authelia + OpenCloud / Matrix)
 
-When Authelia and OpenCloud are both enabled, `apply.sh` writes integration sidecars so you do **not** have to paste OIDC client YAML by hand:
+When Authelia and OpenCloud or Matrix are enabled, `apply.sh` writes integration sidecars so you do **not** have to paste OIDC client YAML by hand:
 
-1. Authelia client → `.authelia-easy-deploy/integration/oidc-clients.d/opencloud.yaml`
+1. Authelia client → `.authelia-easy-deploy/integration/oidc-clients.d/<id>.yaml`
 2. OpenCloud IdP settings → `.opencloud-easy-deploy/integration/oidc-provider.yaml`
+3. Matrix MAS upstream → `.matrix-easy-deploy/integration/oidc-provider.yaml`
 
-Then re-apply Authelia, then OpenCloud (the engine wizard does this order for you).
+Then re-apply Authelia, then the app kit (the engine wizard does this order for you).
 
-**Split VPS:** leave OpenCloud off this engine; set `auth.oidc` on the OpenCloud host as today. On the Authelia host you can still register a remote client with:
+**Same VPS:** kit wizards ask “Use Authelia on this VPS?” when they find `../authelia-easy-deploy/deploy.yaml` (the engine wizard auto-accepts).
+
+**Split VPS:** leave the app off this engine; set `auth.oidc` (OpenCloud) or `features.sso` (Matrix) on the other host. On the Authelia host you can still register a remote client with:
 
 ```yaml
 identity:
   consumers:
     opencloud:
       domain: cloud.other-vps.example
+    matrix:
+      domain: matrix.other-vps.example
 ```
 
-**Opt out:** `identity.wire: false`, or `auth.oidc.managed: false` / `auth.oidc.provider: keycloak` on OpenCloud.
+**Opt out:** `identity.wire: false`, or `auth.oidc.managed: false` / `auth.oidc.provider: keycloak` on OpenCloud, or `features.sso.managed: false` / a non-Authelia `features.sso.providers` list on Matrix.
 
 ## MVP limits
 
 - Network name must be `easydeploy-net`.
-- Matrix SSO stays MAS (upstream OIDC providers). Authelia↔Matrix OIDC is not wired yet.
 - Warns if known standalone Caddy containers still exist.
 
 ## Development
