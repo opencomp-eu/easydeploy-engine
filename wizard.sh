@@ -202,6 +202,9 @@ main() {
 	if [[ "${enable_authelia}" == "y" ]]; then
 		run_kit_wizard "${SCRIPT_DIR}/${AUTHELIA_PATH}" "Authelia" "${AUTHELIA_HAS_DEPLOY}"
 		refresh_discover
+		if [[ -f "${SCRIPT_DIR}/${AUTHELIA_PATH}/deploy.yaml" ]]; then
+			export EASYDEPLOY_AUTHELIA_DEPLOY="$(cd "${SCRIPT_DIR}/${AUTHELIA_PATH}" && pwd)/deploy.yaml"
+		fi
 	fi
 	if [[ "${enable_opencloud}" == "y" ]]; then
 		run_kit_wizard "${SCRIPT_DIR}/${OPENCLOUD_PATH}" "OpenCloud" "${OPENCLOUD_HAS_DEPLOY}"
