@@ -3,5 +3,6 @@
 #
 #   kits/authelia.yaml   →  ../authelia-easy-deploy/deploy.yaml
 #   kits/opencloud.yaml  →  ../opencloud-easy-deploy/deploy.yaml
+#   kits/matrix.yaml     →  ../matrix-easy-deploy/deploy.yaml
 #
 # If a file is absent, apply.sh uses the kit's existing deploy.yaml instead.

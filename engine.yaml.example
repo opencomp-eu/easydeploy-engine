@@ -34,3 +34,4 @@ services:
     enabled: false
     path: ../matrix-easy-deploy
     fragment: .matrix-easy-deploy/integration/caddy.caddy
+    # deploy: kits/matrix.yaml

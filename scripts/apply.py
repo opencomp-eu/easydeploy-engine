@@ -170,7 +170,11 @@ def docker_compose_cmd() -> list[str]:
 
 
 def run_compose(*args: str) -> None:
-    cmd = docker_compose_cmd() + ["-f", str(COMPOSE_DIR / "docker-compose.yml"), *args]
+    cmd = docker_compose_cmd() + ["-f", str(COMPOSE_DIR / "docker-compose.yml")]
+    overlay = STATE_DIR / "compose" / "caddy-extra.yml"
+    if overlay.is_file():
+        cmd.extend(["-f", str(overlay)])
+    cmd.extend(args)
     env = os.environ.copy()
     env["COMPOSE_PROJECT_NAME"] = COMPOSE_PROJECT_NAME
     if COMPOSE_ENV_PATH.is_file():
@@ -180,6 +184,30 @@ def run_compose(*args: str) -> None:
             key, value = line.split("=", 1)
             env[key.strip()] = value.strip()
     subprocess.run(cmd, cwd=COMPOSE_DIR, check=True, env=env)
+
+
+def collect_caddy_overlays(enabled: list[dict]) -> list[Path]:
+    overlays: list[Path] = []
+    for service in enabled:
+        fragment_path = resolve_fragment_path(service)
+        overlay = fragment_path.parent / "engine-caddy.yml"
+        if overlay.is_file():
+            overlays.append(overlay)
+    return overlays
+
+
+def assemble_caddy_runtime_overlay(enabled: list[dict]) -> Path | None:
+    import shutil
+
+    dest = STATE_DIR / "compose" / "caddy-extra.yml"
+    overlays = collect_caddy_overlays(enabled)
+    if not overlays:
+        if dest.is_file():
+            dest.unlink()
+        return None
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(overlays[-1], dest)
+    return dest
 
 
 def resolve_operator_deploy(
@@ -238,7 +266,7 @@ def ensure_enabled_kits(
     project_root: Path = PROJECT_ROOT,
     sync: bool = False,
 ) -> None:
-    """Clone missing catalog kits (Authelia/OpenCloud). --sync-kits also updates existing checkouts."""
+    """Clone missing catalog kits. --sync-kits also updates existing checkouts."""
     catalog = {item["name"]: item for item in KIT_CATALOG}
     branch = load_kit_branch(project_root)
     for service in enabled:
@@ -308,12 +336,18 @@ def apply_engine(
 
     print(f"Rendered {CADDYFILE} from {len(fragments)} fragment(s).")
 
+    overlay = assemble_caddy_runtime_overlay(enabled)
+    if overlay is not None:
+        print(f"Caddy compose overlay: {overlay}")
+
     if skip_runtime:
         return
 
     warn_standalone_caddy_conflicts()
     network = str((config.get("engine") or {}).get("network") or DEFAULT_NETWORK)
     ensure_docker_network(network)
+    if overlay is not None:
+        ensure_docker_network("caddy_net")
 
     if not skip_pull:
         print("Pulling Caddy image…")

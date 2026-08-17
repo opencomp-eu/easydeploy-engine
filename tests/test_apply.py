@@ -85,3 +85,31 @@ def test_seed_kit_deploy_missing_yaml(tmp_path: Path):
     service = {"name": "opencloud", "path": kit, "fragment_rel": "x", "deploy": None}
     with pytest.raises(FileNotFoundError, match="kits/opencloud.yaml"):
         seed_kit_deploy(service, tmp_path)
+
+
+def test_collect_caddy_overlays_from_fragment_dir(tmp_path: Path, monkeypatch):
+    import scripts.apply as engine_apply
+
+    monkeypatch.setattr(engine_apply, "STATE_DIR", tmp_path / ".easydeploy-engine")
+
+    kit = tmp_path / "matrix-easy-deploy"
+    integ = kit / ".matrix-easy-deploy" / "integration"
+    integ.mkdir(parents=True)
+    (integ / "caddy.caddy").write_text("matrix.example.com {\n    reverse_proxy matrix_synapse:8008\n}\n")
+    (integ / "engine-caddy.yml").write_text(
+        "services:\n  caddy:\n    extra_hosts:\n      - host.docker.internal:host-gateway\n"
+    )
+    enabled = [
+        {
+            "name": "matrix",
+            "path": kit,
+            "fragment_rel": ".matrix-easy-deploy/integration/caddy.caddy",
+        }
+    ]
+    overlays = engine_apply.collect_caddy_overlays(enabled)
+    assert overlays == [integ / "engine-caddy.yml"]
+
+    dest = engine_apply.assemble_caddy_runtime_overlay(enabled)
+    assert dest is not None
+    assert dest.is_file()
+    assert "host.docker.internal" in dest.read_text()

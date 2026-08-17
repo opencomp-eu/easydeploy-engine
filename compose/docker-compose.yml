@@ -20,6 +20,8 @@ services:
       - ${EDE_CADDYFILE}:/etc/caddy/Caddyfile:ro
       - easydeploy_caddy_data:/data
       - easydeploy_caddy_config:/config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - easydeploy-net
 

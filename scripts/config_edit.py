@@ -47,7 +47,7 @@ KIT_CATALOG: tuple[dict[str, Any], ...] = (
         "repo": "https://github.com/opencomp-eu/matrix-easy-deploy.git",
         "fragment": ".matrix-easy-deploy/integration/caddy.caddy",
         "label": "Matrix",
-        "orchestrate": False,
+        "orchestrate": True,
         "branch": DEFAULT_KIT_BRANCH,
     },
 )

@@ -61,7 +61,7 @@ def test_emit_wizard_discover(tmp_path: Path):
     assert "OPENCLOUD_REPO=https://github.com/opencomp-eu/opencloud-easy-deploy.git" in text
     assert "OPENCLOUD_ORCHESTRATE=y" in text
     assert "MATRIX_FOUND=n" in text
-    assert "MATRIX_ORCHESTRATE=n" in text
+    assert "MATRIX_ORCHESTRATE=y" in text
 
 
 def test_set_proxy_integrate_writes_mode(tmp_path: Path):

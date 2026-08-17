@@ -16,7 +16,7 @@ Manual equivalent:
 1. Clone kits as siblings of the engine (or let the engine wizard clone them).
 2. Create `engine.yaml` and enable services.
 3. Set each kit `proxy.mode: integrate` in `deploy.yaml`.
-4. `bash apply.sh` in **Authelia**, then **OpenCloud** (integrate mode), then other kits as they gain integrate support.
+4. `bash apply.sh` in **Authelia**, then **OpenCloud** / **Matrix** (integrate mode).
 5. `bash apply.sh` in **easydeploy-engine**.
 6. After changing domains or adding a service: re-apply the kit, then re-apply the engine.
 

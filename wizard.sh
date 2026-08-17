@@ -19,7 +19,7 @@ print_banner() {
 usage() {
 	echo "Usage: bash wizard.sh [--branch <name>]"
 	echo
-	echo "Clones or updates Authelia / OpenCloud next to the engine (git clone"
+	echo "Clones or updates Authelia / OpenCloud / Matrix next to the engine (git clone"
 	echo "--recurse-submodules --branch <name>), runs each kit's wizard.sh,"
 	echo "switches them to proxy.mode: integrate, and applies Authelia → apps →"
 	echo "shared Caddy."
@@ -105,7 +105,7 @@ main() {
 
 	local enable_authelia="n" enable_opencloud="n" enable_matrix="n"
 	local wire_oidc="n" authz_policy="two_factor" proceed
-	local authelia_git="" opencloud_git=""
+	local authelia_git="" opencloud_git="" matrix_git=""
 
 	echo -e "${BOLD}  Services on this VPS${RESET}"
 	if [[ "${AUTHELIA_FOUND}" == "y" ]]; then
@@ -128,10 +128,11 @@ main() {
 	fi
 	if [[ "${MATRIX_FOUND}" == "y" ]]; then
 		if [[ "${MATRIX_HAS_DEPLOY}" != "y" ]]; then
-			warn "Found ${MATRIX_PATH} but no deploy.yaml — Matrix clone/OIDC is not orchestrated yet."
-		else
-			warn "Matrix can join the shared Caddy; Authelia OIDC for Matrix is not wired yet."
+			info "Found ${MATRIX_PATH} — will run its wizard.sh (no deploy.yaml yet)."
 		fi
+		ask_yn enable_matrix "Enable Matrix?" "y"
+	else
+		info "Matrix is not cloned (will clone ${MATRIX_REPO})."
 		ask_yn enable_matrix "Enable Matrix?" "n"
 	fi
 
@@ -139,7 +140,7 @@ main() {
 		die "Enable at least one service."
 	fi
 
-	if [[ "${enable_authelia}" == "y" || "${enable_opencloud}" == "y" ]]; then
+	if [[ "${enable_authelia}" == "y" || "${enable_opencloud}" == "y" || "${enable_matrix}" == "y" ]]; then
 		echo
 		echo -e "${BOLD}  Git clone${RESET}"
 		echo "  Enabled kits are cloned or updated: git fetch + checkout --recurse-submodules."
@@ -174,17 +175,20 @@ main() {
 	if [[ "${enable_opencloud}" == "y" ]]; then
 		if [[ "${OPENCLOUD_FOUND}" == "y" ]]; then opencloud_git=" (update)"; else opencloud_git=" (clone)"; fi
 	fi
+	if [[ "${enable_matrix}" == "y" ]]; then
+		if [[ "${MATRIX_FOUND}" == "y" ]]; then matrix_git=" (update)"; else matrix_git=" (clone)"; fi
+	fi
 
 	echo
 	echo -e "${BOLD}  Summary${RESET}"
 	echo "  Authelia:   ${enable_authelia}${authelia_git}"
 	echo "  OpenCloud:  ${enable_opencloud}${opencloud_git}"
-	echo "  Matrix:     ${enable_matrix}"
+	echo "  Matrix:     ${enable_matrix}${matrix_git}"
 	echo "  OIDC wire:  ${wire_oidc}"
 	if [[ "${wire_oidc}" == "y" ]]; then
 		echo "  Policy:     ${authz_policy}"
 	fi
-	if [[ "${enable_authelia}" == "y" || "${enable_opencloud}" == "y" ]]; then
+	if [[ "${enable_authelia}" == "y" || "${enable_opencloud}" == "y" || "${enable_matrix}" == "y" ]]; then
 		echo "  Git:        --recurse-submodules --branch ${KIT_BRANCH}"
 	fi
 	echo
@@ -203,6 +207,9 @@ main() {
 	if [[ "${enable_opencloud}" == "y" ]]; then
 		clone_kit opencloud OpenCloud
 	fi
+	if [[ "${enable_matrix}" == "y" ]]; then
+		clone_kit matrix Matrix
+	fi
 	refresh_discover
 
 	# Authelia first so OpenCloud wizard can detect a local IdP.
@@ -215,6 +222,10 @@ main() {
 	fi
 	if [[ "${enable_opencloud}" == "y" ]]; then
 		run_kit_wizard "${SCRIPT_DIR}/${OPENCLOUD_PATH}" "OpenCloud" "${OPENCLOUD_HAS_DEPLOY}"
+		refresh_discover
+	fi
+	if [[ "${enable_matrix}" == "y" ]]; then
+		run_kit_wizard "${SCRIPT_DIR}/${MATRIX_PATH}" "Matrix" "${MATRIX_HAS_DEPLOY}"
 		refresh_discover
 	fi
 
