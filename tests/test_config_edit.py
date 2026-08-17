@@ -153,6 +153,47 @@ def test_clone_kit_from_local_repo(tmp_path: Path):
     assert clone_kit(str(src), dest) == "exists"
 
 
+def test_clone_kit_updates_existing_checkout(tmp_path: Path):
+    import os
+    import subprocess
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "wizard.sh").write_text("v1\n")
+    (src / "apply.sh").write_text("x\n")
+    _git_commit(src)
+    subprocess.run(
+        ["git", "-C", str(src), "checkout", "-b", "feature/engine"],
+        check=True,
+        capture_output=True,
+    )
+
+    dest = tmp_path / "kit"
+    assert clone_kit(str(src), dest, branch="feature/engine") == "cloned"
+    assert (dest / "wizard.sh").read_text() == "v1\n"
+
+    (src / "wizard.sh").write_text("v2-authelia-detect\n")
+    env = os.environ.copy()
+    env.update(
+        {
+            "GIT_AUTHOR_NAME": "test",
+            "GIT_AUTHOR_EMAIL": "test@example.test",
+            "GIT_COMMITTER_NAME": "test",
+            "GIT_COMMITTER_EMAIL": "test@example.test",
+        }
+    )
+    subprocess.run(["git", "-C", str(src), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(src), "commit", "-m", "detect authelia"],
+        check=True,
+        capture_output=True,
+        env=env,
+    )
+
+    assert clone_kit(str(src), dest, branch="feature/engine") == "updated"
+    assert (dest / "wizard.sh").read_text() == "v2-authelia-detect\n"
+
+
 def test_clone_kit_rejects_non_kit_dir(tmp_path: Path):
     dest = tmp_path / "authelia-easy-deploy"
     dest.mkdir()

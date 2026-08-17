@@ -16,7 +16,7 @@ bash wizard.sh
 
 The wizard can:
 
-1. Clone Authelia and OpenCloud next to this repo (if they are not already there) with `git clone --recurse-submodules --branch <branch>`.
+1. Clone Authelia and OpenCloud next to this repo (if they are not already there), or **update existing checkouts** to `engine.kit_branch`, with `git clone --recurse-submodules --branch <branch>`.
 2. Run each kit’s `wizard.sh` (domains, admin user, …).
 3. Switch those kits to `proxy.mode: integrate`.
 4. Apply Authelia then apps, wire OpenCloud OIDC sidecars, and start shared Caddy.

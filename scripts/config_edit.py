@@ -158,8 +158,10 @@ def emit_wizard_discover(engine_root: Path = PROJECT_ROOT) -> str:
 
 
 def clone_kit(repo: str, dest: Path, *, branch: str | None = None) -> str:
-    """Clone a kit repo into dest with --recurse-submodules. Returns 'cloned' or 'exists'."""
+    """Clone or update a kit checkout. Returns 'cloned', 'updated', or 'exists'."""
     if kit_is_present(dest):
+        if branch:
+            return update_kit(dest, branch=branch)
         return "exists"
     if dest.exists() and any(dest.iterdir()):
         raise FileExistsError(
@@ -170,12 +172,31 @@ def clone_kit(repo: str, dest: Path, *, branch: str | None = None) -> str:
     if branch:
         cmd.extend(["--branch", normalize_branch(branch)])
     cmd.extend([repo, str(dest)])
-    env = os.environ.copy()
-    env["GIT_TERMINAL_PROMPT"] = "0"
-    subprocess.run(cmd, check=True, env=env)
+    subprocess.run(cmd, check=True, env=_git_env())
     if not kit_is_present(dest):
         raise RuntimeError(f"cloned {repo} to {dest} but {WIZARD_NAME} / {APPLY_NAME} are missing")
     return "cloned"
+
+
+def update_kit(dest: Path, *, branch: str) -> str:
+    """Fetch origin and check out branch in an existing kit clone."""
+    branch = normalize_branch(branch)
+    if not (dest / ".git").exists():
+        return "exists"
+    _run_git(dest, "fetch", "origin")
+    _run_git(dest, "checkout", "-B", branch, f"origin/{branch}")
+    _run_git(dest, "submodule", "update", "--init", "--recursive")
+    return "updated"
+
+
+def _git_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    return env
+
+
+def _run_git(dest: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(dest), *args], check=True, env=_git_env())
 
 
 def clone_named_kit(
@@ -271,7 +292,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Edit engine.yaml")
     parser.add_argument("--print-discover", action="store_true")
     parser.add_argument("--discover", action="store_true")
-    parser.add_argument("--clone", metavar="KIT", help="Clone a catalog kit next to the engine")
+    parser.add_argument("--clone", metavar="KIT", help="Clone or update a catalog kit next to the engine")
     parser.add_argument(
         "--branch",
         help=f"Git branch to clone (default: {DEFAULT_KIT_BRANCH})",

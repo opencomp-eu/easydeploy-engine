@@ -19,7 +19,7 @@ print_banner() {
 usage() {
 	echo "Usage: bash wizard.sh [--branch <name>]"
 	echo
-	echo "Clones Authelia / OpenCloud next to the engine if needed (git clone"
+	echo "Clones or updates Authelia / OpenCloud next to the engine (git clone"
 	echo "--recurse-submodules --branch <name>), runs each kit's wizard.sh,"
 	echo "switches them to proxy.mode: integrate, and applies Authelia → apps →"
 	echo "shared Caddy."
@@ -55,8 +55,10 @@ refresh_discover() {
 clone_kit() {
 	local name="$1"
 	local label="$2"
-	info "Cloning ${label} (branch ${KIT_BRANCH}, --recurse-submodules)…"
-	uv run python -m scripts.config_edit --clone "${name}" --branch "${KIT_BRANCH}" --engine-root "${SCRIPT_DIR}"
+	local result
+	info "Syncing ${label} on branch ${KIT_BRANCH} (clone or update, --recurse-submodules)…"
+	result="$(uv run python -m scripts.config_edit --clone "${name}" --branch "${KIT_BRANCH}" --engine-root "${SCRIPT_DIR}")"
+	info "${label}: ${result}"
 }
 
 run_kit_wizard() {
@@ -103,7 +105,7 @@ main() {
 
 	local enable_authelia="n" enable_opencloud="n" enable_matrix="n"
 	local wire_oidc="n" authz_policy="two_factor" proceed
-	local clone_authelia="n" clone_opencloud="n"
+	local authelia_git="" opencloud_git=""
 
 	echo -e "${BOLD}  Services on this VPS${RESET}"
 	if [[ "${AUTHELIA_FOUND}" == "y" ]]; then
@@ -114,7 +116,6 @@ main() {
 	else
 		info "Authelia is not cloned (will clone ${AUTHELIA_REPO})."
 		ask_yn enable_authelia "Enable Authelia?" "y"
-		clone_authelia="${enable_authelia}"
 	fi
 	if [[ "${OPENCLOUD_FOUND}" == "y" ]]; then
 		if [[ "${OPENCLOUD_HAS_DEPLOY}" != "y" ]]; then
@@ -124,7 +125,6 @@ main() {
 	else
 		info "OpenCloud is not cloned (will clone ${OPENCLOUD_REPO})."
 		ask_yn enable_opencloud "Enable OpenCloud?" "y"
-		clone_opencloud="${enable_opencloud}"
 	fi
 	if [[ "${MATRIX_FOUND}" == "y" ]]; then
 		if [[ "${MATRIX_HAS_DEPLOY}" != "y" ]]; then
@@ -139,17 +139,17 @@ main() {
 		die "Enable at least one service."
 	fi
 
-	if [[ "${clone_authelia}" == "y" || "${clone_opencloud}" == "y" ]]; then
+	if [[ "${enable_authelia}" == "y" || "${enable_opencloud}" == "y" ]]; then
 		echo
 		echo -e "${BOLD}  Git clone${RESET}"
-		echo "  Clones use: git clone --recurse-submodules --branch <branch>"
+		echo "  Enabled kits are cloned or updated: git fetch + checkout --recurse-submodules."
 		if [[ -z "${KIT_BRANCH}" ]]; then
-			ask KIT_BRANCH "Git branch to clone" "${KIT_BRANCH_DEFAULT}"
+			ask KIT_BRANCH "Git branch to clone/update" "${KIT_BRANCH_DEFAULT}"
 		else
 			info "Kit branch: ${KIT_BRANCH}"
 		fi
 		if [[ -z "${KIT_BRANCH}" ]]; then
-			die "Git branch is required when cloning kits."
+			die "Git branch is required when cloning or updating kits."
 		fi
 	else
 		KIT_BRANCH="${KIT_BRANCH:-${KIT_BRANCH_DEFAULT}}"
@@ -168,32 +168,39 @@ main() {
 		fi
 	fi
 
+	if [[ "${enable_authelia}" == "y" ]]; then
+		if [[ "${AUTHELIA_FOUND}" == "y" ]]; then authelia_git=" (update)"; else authelia_git=" (clone)"; fi
+	fi
+	if [[ "${enable_opencloud}" == "y" ]]; then
+		if [[ "${OPENCLOUD_FOUND}" == "y" ]]; then opencloud_git=" (update)"; else opencloud_git=" (clone)"; fi
+	fi
+
 	echo
 	echo -e "${BOLD}  Summary${RESET}"
-	echo "  Authelia:   ${enable_authelia}$([[ "${clone_authelia}" == "y" ]] && echo ' (clone)')"
-	echo "  OpenCloud:  ${enable_opencloud}$([[ "${clone_opencloud}" == "y" ]] && echo ' (clone)')"
+	echo "  Authelia:   ${enable_authelia}${authelia_git}"
+	echo "  OpenCloud:  ${enable_opencloud}${opencloud_git}"
 	echo "  Matrix:     ${enable_matrix}"
 	echo "  OIDC wire:  ${wire_oidc}"
 	if [[ "${wire_oidc}" == "y" ]]; then
 		echo "  Policy:     ${authz_policy}"
 	fi
-	if [[ "${clone_authelia}" == "y" || "${clone_opencloud}" == "y" ]]; then
-		echo "  Clone:      --recurse-submodules --branch ${KIT_BRANCH}"
+	if [[ "${enable_authelia}" == "y" || "${enable_opencloud}" == "y" ]]; then
+		echo "  Git:        --recurse-submodules --branch ${KIT_BRANCH}"
 	fi
 	echo
 	echo "  Enabled kits will use proxy.mode: integrate behind shared Caddy."
 	echo
 
-	ask_yn proceed "Clone (if needed), run kit wizards, write engine.yaml, and apply?" "y"
+	ask_yn proceed "Sync kits, run kit wizards, write engine.yaml, and apply?" "y"
 	[[ "${proceed}" == "y" ]] || {
 		info "Cancelled."
 		exit 0
 	}
 
-	if [[ "${clone_authelia}" == "y" ]]; then
+	if [[ "${enable_authelia}" == "y" ]]; then
 		clone_kit authelia Authelia
 	fi
-	if [[ "${clone_opencloud}" == "y" ]]; then
+	if [[ "${enable_opencloud}" == "y" ]]; then
 		clone_kit opencloud OpenCloud
 	fi
 	refresh_discover
