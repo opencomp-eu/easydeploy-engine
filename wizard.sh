@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/scripts/lib.sh"
 
 ENGINE_YAML="${SCRIPT_DIR}/engine.yaml"
+KIT_BRANCH="${EASYDEPLOY_KIT_BRANCH:-}"
 
 print_banner() {
 	echo
@@ -15,6 +16,38 @@ print_banner() {
 	echo
 }
 
+usage() {
+	echo "Usage: bash wizard.sh [--branch <name>]"
+	echo
+	echo "Clones Authelia / OpenCloud next to the engine if needed (git clone"
+	echo "--recurse-submodules --branch <name>), runs each kit's wizard.sh,"
+	echo "switches them to proxy.mode: integrate, and applies Authelia → apps →"
+	echo "shared Caddy."
+	echo
+	echo "  --branch   Git branch to clone (default: feature/engine; use main later)"
+}
+
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		--help|-h)
+			usage
+			exit 0
+			;;
+		--branch)
+			[[ $# -ge 2 ]] || die "--branch requires a value"
+			KIT_BRANCH="$2"
+			shift 2
+			;;
+		--branch=*)
+			KIT_BRANCH="${1#*=}"
+			shift
+			;;
+		*)
+			die "Unknown option: $1"
+			;;
+	esac
+done
+
 refresh_discover() {
 	eval "$(uv run python -m scripts.config_edit --print-discover --engine-root "${SCRIPT_DIR}")"
 }
@@ -22,8 +55,8 @@ refresh_discover() {
 clone_kit() {
 	local name="$1"
 	local label="$2"
-	info "Cloning ${label}…"
-	uv run python -m scripts.config_edit --clone "${name}" --engine-root "${SCRIPT_DIR}"
+	info "Cloning ${label} (branch ${KIT_BRANCH}, --recurse-submodules)…"
+	uv run python -m scripts.config_edit --clone "${name}" --branch "${KIT_BRANCH}" --engine-root "${SCRIPT_DIR}"
 }
 
 run_kit_wizard() {
@@ -54,15 +87,6 @@ run_kit_wizard() {
 }
 
 main() {
-	if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-		echo "Usage: bash wizard.sh"
-		echo
-		echo "Clones Authelia / OpenCloud next to the engine if needed, runs each"
-		echo "kit's wizard.sh, switches them to proxy.mode: integrate, and applies"
-		echo "Authelia → apps → shared Caddy."
-		exit 0
-	fi
-
 	bash "${SCRIPT_DIR}/ensure-dependencies.sh"
 	cd "${SCRIPT_DIR}"
 
@@ -115,6 +139,22 @@ main() {
 		die "Enable at least one service."
 	fi
 
+	if [[ "${clone_authelia}" == "y" || "${clone_opencloud}" == "y" ]]; then
+		echo
+		echo -e "${BOLD}  Git clone${RESET}"
+		echo "  Clones use: git clone --recurse-submodules --branch <branch>"
+		if [[ -z "${KIT_BRANCH}" ]]; then
+			ask KIT_BRANCH "Git branch to clone" "${KIT_BRANCH_DEFAULT}"
+		else
+			info "Kit branch: ${KIT_BRANCH}"
+		fi
+		if [[ -z "${KIT_BRANCH}" ]]; then
+			die "Git branch is required when cloning kits."
+		fi
+	else
+		KIT_BRANCH="${KIT_BRANCH:-${KIT_BRANCH_DEFAULT}}"
+	fi
+
 	if [[ "${enable_authelia}" == "y" && "${enable_opencloud}" == "y" ]]; then
 		echo
 		echo -e "${BOLD}  Identity${RESET}"
@@ -136,6 +176,9 @@ main() {
 	echo "  OIDC wire:  ${wire_oidc}"
 	if [[ "${wire_oidc}" == "y" ]]; then
 		echo "  Policy:     ${authz_policy}"
+	fi
+	if [[ "${clone_authelia}" == "y" || "${clone_opencloud}" == "y" ]]; then
+		echo "  Clone:      --recurse-submodules --branch ${KIT_BRANCH}"
 	fi
 	echo
 	echo "  Enabled kits will use proxy.mode: integrate behind shared Caddy."
@@ -184,6 +227,7 @@ update_from_wizard(
     kits=kits,
     wire=${wire_oidc@Q} == "y",
     authorization_policy=${authz_policy@Q},
+    kit_branch=${KIT_BRANCH@Q} or None,
     path=Path(${ENGINE_YAML@Q}),
 )
 for name in enabled:

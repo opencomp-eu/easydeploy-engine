@@ -8,10 +8,13 @@ import pytest
 import yaml
 
 from scripts.config_edit import (
+    DEFAULT_KIT_BRANCH,
     clone_kit,
     clone_named_kit,
     discover_kits,
     emit_wizard_discover,
+    load_kit_branch,
+    normalize_branch,
     set_proxy_integrate,
     update_from_wizard,
 )
@@ -49,6 +52,7 @@ def test_emit_wizard_discover(tmp_path: Path):
     _write_kit(tmp_path, "authelia-easy-deploy")
 
     text = emit_wizard_discover(engine)
+    assert "KIT_BRANCH_DEFAULT=feature/engine" in text
     assert "AUTHELIA_FOUND=y" in text
     assert "AUTHELIA_HAS_DEPLOY=y" in text
     assert "AUTHELIA_HAS_WIZARD=y" in text
@@ -99,12 +103,14 @@ def test_update_from_wizard_enables_and_drops_apply_kits(tmp_path: Path):
         kits=kits,
         wire=True,
         authorization_policy="two_factor",
+        kit_branch="feature/engine",
         path=engine_yaml,
         example=example,
     )
     data = yaml.safe_load(engine_yaml.read_text())
     assert data["identity"]["wire"] == "auto"
     assert "apply_kits" not in data["identity"]
+    assert data["engine"]["kit_branch"] == "feature/engine"
     assert data["services"]["authelia"]["enabled"] is True
     assert data["services"]["authelia"]["path"] == "../authelia-easy-deploy"
     assert data["services"]["opencloud"]["enabled"] is True
@@ -158,3 +164,60 @@ def test_clone_kit_rejects_non_kit_dir(tmp_path: Path):
 def test_clone_named_kit_unknown():
     with pytest.raises(KeyError, match="unknown kit"):
         clone_named_kit("not-a-kit")
+
+
+def test_normalize_branch_rejects_junk():
+    with pytest.raises(ValueError, match="invalid git branch"):
+        normalize_branch("feature engine")
+    with pytest.raises(ValueError, match="invalid git branch"):
+        normalize_branch("-main")
+    assert normalize_branch("feature/engine") == "feature/engine"
+
+
+def test_load_kit_branch_from_engine_yaml(tmp_path: Path):
+    engine = tmp_path / "easydeploy-engine"
+    engine.mkdir()
+    (engine / "engine.yaml").write_text(yaml.safe_dump({"engine": {"kit_branch": "main"}}))
+    assert load_kit_branch(engine) == "main"
+    assert DEFAULT_KIT_BRANCH == "feature/engine"
+
+
+def test_clone_kit_checks_out_branch(tmp_path: Path):
+    import os
+    import subprocess
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "wizard.sh").write_text("main\n")
+    (src / "apply.sh").write_text("x\n")
+    _git_commit(src)
+    subprocess.run(
+        ["git", "-C", str(src), "checkout", "-b", "feature/engine"],
+        check=True,
+        capture_output=True,
+    )
+    (src / "wizard.sh").write_text("feature\n")
+    env = os.environ.copy()
+    env.update(
+        {
+            "GIT_AUTHOR_NAME": "test",
+            "GIT_AUTHOR_EMAIL": "test@example.test",
+            "GIT_COMMITTER_NAME": "test",
+            "GIT_COMMITTER_EMAIL": "test@example.test",
+        }
+    )
+    subprocess.run(["git", "-C", str(src), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(src), "commit", "-m", "on feature"],
+        check=True,
+        capture_output=True,
+        env=env,
+    )
+
+    dest = tmp_path / "feature-clone"
+    assert clone_kit(str(src), dest, branch="feature/engine") == "cloned"
+    assert (dest / "wizard.sh").read_text() == "feature\n"
+
+    dest_main = tmp_path / "main-clone"
+    assert clone_kit(str(src), dest_main, branch="main") == "cloned"
+    assert (dest_main / "wizard.sh").read_text() == "main\n"

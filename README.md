@@ -16,10 +16,12 @@ bash wizard.sh
 
 The wizard can:
 
-1. Clone Authelia and OpenCloud next to this repo (if they are not already there).
+1. Clone Authelia and OpenCloud next to this repo (if they are not already there) with `git clone --recurse-submodules --branch <branch>`.
 2. Run each kit’s `wizard.sh` (domains, admin user, …).
 3. Switch those kits to `proxy.mode: integrate`.
 4. Apply Authelia then apps, wire OpenCloud OIDC sidecars, and start shared Caddy.
+
+The clone branch defaults to `feature/engine` (where the engine-aware kit changes live today). After those land on `main`, set `engine.kit_branch: main` in `engine.yaml`, pass `--branch main`, or answer `main` in the wizard.
 
 Re-run a kit `apply.sh`, then engine `apply.sh`, whenever a fragment or domain changes. Re-run `bash wizard.sh` to add a service.
 
@@ -37,7 +39,7 @@ A kit the engine can clone and run looks like this (Authelia and OpenCloud alrea
 
 `wizard.sh` also accepts `--from-engine` (used by this wizard): set `proxy.mode: integrate` and write `deploy.yaml` without applying — the engine applies in order.
 
-Checkout layout (siblings of this repo):
+Checkout layout (siblings of this repo), cloned on `engine.kit_branch` (default `feature/engine`):
 
 - `../authelia-easy-deploy` ← `https://github.com/opencomp-eu/authelia-easy-deploy.git`
 - `../opencloud-easy-deploy` ← `https://github.com/opencomp-eu/opencloud-easy-deploy.git`

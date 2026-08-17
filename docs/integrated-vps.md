@@ -7,7 +7,7 @@
 
 ## Apply order
 
-Preferred: `bash wizard.sh` in **easydeploy-engine**. It clones Authelia / OpenCloud as siblings if needed, runs each kit’s `wizard.sh`, writes `engine.yaml`, sets `proxy.mode: integrate`, and applies Authelia → apps → shared Caddy.
+Preferred: `bash wizard.sh` in **easydeploy-engine**. It clones Authelia / OpenCloud as siblings if needed (`git clone --recurse-submodules --branch <branch>`, default `feature/engine`), runs each kit’s `wizard.sh`, writes `engine.yaml`, sets `proxy.mode: integrate`, and applies Authelia → apps → shared Caddy.
 
 Standalone kits are unchanged: clone `opencloud-easy-deploy` (or Authelia) anywhere and run `bash wizard.sh` there.
 

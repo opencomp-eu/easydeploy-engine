@@ -4,6 +4,9 @@
 
 engine:
   network: easydeploy-net
+  # Git branch used when the wizard clones sibling kits.
+  # feature/engine until those changes land on main.
+  kit_branch: feature/engine
 
 # Same-VPS Authelia ↔ OpenCloud OIDC. Sidecars are written into each kit's
 # .*/integration/ directory (operator deploy.yaml is not rewritten).

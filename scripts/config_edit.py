@@ -17,6 +17,9 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_ENGINE_PATH = PROJECT_ROOT / "engine.yaml"
 
+# Git branch used when the engine clones sibling kits. Flip to "main" after merge.
+DEFAULT_KIT_BRANCH = "feature/engine"
+
 # Kits the engine can discover. orchestrate=True means the wizard may clone the
 # repo as a sibling and run wizard.sh. Kits stay standalone-deployable on their own.
 KIT_CATALOG: tuple[dict[str, Any], ...] = (
@@ -27,6 +30,7 @@ KIT_CATALOG: tuple[dict[str, Any], ...] = (
         "fragment": ".authelia-easy-deploy/integration/caddy.caddy",
         "label": "Authelia",
         "orchestrate": True,
+        "branch": DEFAULT_KIT_BRANCH,
     },
     {
         "name": "opencloud",
@@ -35,6 +39,7 @@ KIT_CATALOG: tuple[dict[str, Any], ...] = (
         "fragment": ".opencloud-easy-deploy/integration/caddy.caddy",
         "label": "OpenCloud",
         "orchestrate": True,
+        "branch": DEFAULT_KIT_BRANCH,
     },
     {
         "name": "matrix",
@@ -43,6 +48,7 @@ KIT_CATALOG: tuple[dict[str, Any], ...] = (
         "fragment": ".matrix-easy-deploy/integration/caddy.caddy",
         "label": "Matrix",
         "orchestrate": False,
+        "branch": DEFAULT_KIT_BRANCH,
     },
 )
 
@@ -60,6 +66,24 @@ def catalog_by_name(name: str) -> dict[str, Any]:
 
 def kit_dest(engine_root: Path, dirname: str) -> Path:
     return (engine_root.parent / dirname).resolve()
+
+
+def normalize_branch(raw: str) -> str:
+    branch = (raw or "").strip()
+    if not branch or branch.startswith("-") or ".." in branch or any(ch.isspace() for ch in branch):
+        raise ValueError(f"invalid git branch {raw!r}")
+    return branch
+
+
+def load_kit_branch(engine_root: Path, engine_path: Path | None = None) -> str:
+    path = engine_path if engine_path is not None else engine_root / "engine.yaml"
+    if path.is_file():
+        engine = load_yaml(path).get("engine") or {}
+        if isinstance(engine, dict):
+            raw = str(engine.get("kit_branch") or "").strip()
+            if raw:
+                return normalize_branch(raw)
+    return DEFAULT_KIT_BRANCH
 
 
 def load_yaml(path: Path) -> dict:
@@ -99,6 +123,7 @@ def describe_kit(kit: dict[str, Any], engine_root: Path) -> dict[str, Any]:
         "dirname": kit["dirname"],
         "fragment": kit["fragment"],
         "repo": kit["repo"],
+        "branch": str(kit.get("branch") or DEFAULT_KIT_BRANCH),
         "orchestrate": bool(kit.get("orchestrate")),
         "path": kit_path,
         "rel_path": os.path.relpath(kit_path, engine_root),
@@ -119,7 +144,7 @@ def discover_kits(engine_root: Path = PROJECT_ROOT) -> list[dict[str, Any]]:
 
 def emit_wizard_discover(engine_root: Path = PROJECT_ROOT) -> str:
     """Bash-eval-safe KEY=value lines for wizard.sh (includes uncloned kits)."""
-    lines: list[str] = []
+    lines = [f"KIT_BRANCH_DEFAULT={shlex.quote(load_kit_branch(engine_root))}"]
     for item in describe_catalog(engine_root):
         name = item["name"].upper()
         lines.append(f"{name}_FOUND={'y' if item['found'] else 'n'}")
@@ -127,12 +152,13 @@ def emit_wizard_discover(engine_root: Path = PROJECT_ROOT) -> str:
         lines.append(f"{name}_HAS_DEPLOY={'y' if item['has_deploy'] else 'n'}")
         lines.append(f"{name}_HAS_WIZARD={'y' if item['has_wizard'] else 'n'}")
         lines.append(f"{name}_REPO={shlex.quote(item['repo'])}")
+        lines.append(f"{name}_BRANCH={shlex.quote(item['branch'])}")
         lines.append(f"{name}_ORCHESTRATE={'y' if item['orchestrate'] else 'n'}")
     return "\n".join(lines) + "\n"
 
 
-def clone_kit(repo: str, dest: Path) -> str:
-    """Clone a kit repo into dest. Returns 'cloned' or 'exists'."""
+def clone_kit(repo: str, dest: Path, *, branch: str | None = None) -> str:
+    """Clone a kit repo into dest with --recurse-submodules. Returns 'cloned' or 'exists'."""
     if kit_is_present(dest):
         return "exists"
     if dest.exists() and any(dest.iterdir()):
@@ -140,7 +166,10 @@ def clone_kit(repo: str, dest: Path) -> str:
             f"{dest} exists but is not an Easy Deploy kit (missing {WIZARD_NAME} / {APPLY_NAME})"
         )
     dest.parent.mkdir(parents=True, exist_ok=True)
-    cmd = ["git", "clone", "--recurse-submodules", repo, str(dest)]
+    cmd = ["git", "clone", "--recurse-submodules"]
+    if branch:
+        cmd.extend(["--branch", normalize_branch(branch)])
+    cmd.extend([repo, str(dest)])
     env = os.environ.copy()
     env["GIT_TERMINAL_PROMPT"] = "0"
     subprocess.run(cmd, check=True, env=env)
@@ -149,10 +178,16 @@ def clone_kit(repo: str, dest: Path) -> str:
     return "cloned"
 
 
-def clone_named_kit(name: str, engine_root: Path = PROJECT_ROOT) -> str:
+def clone_named_kit(
+    name: str,
+    engine_root: Path = PROJECT_ROOT,
+    *,
+    branch: str | None = None,
+) -> str:
     kit = catalog_by_name(name)
     dest = kit_dest(engine_root, kit["dirname"])
-    return clone_kit(str(kit["repo"]), dest)
+    chosen = branch if branch is not None else kit.get("branch") or DEFAULT_KIT_BRANCH
+    return clone_kit(str(kit["repo"]), dest, branch=str(chosen))
 
 
 def set_proxy_integrate(kit_root: Path) -> bool:
@@ -186,13 +221,20 @@ def update_from_wizard(
     authorization_policy: str,
     path: Path = DEFAULT_ENGINE_PATH,
     example: Path | None = None,
+    kit_branch: str | None = None,
 ) -> None:
     policy = authorization_policy.strip().lower()
     if policy not in {"one_factor", "two_factor"}:
         raise ValueError("authorization_policy must be 'one_factor' or 'two_factor'")
 
     config = load_or_init(path, example=example)
-    config["engine"] = {"network": "easydeploy-net"}
+    engine = config.get("engine")
+    if not isinstance(engine, dict):
+        engine = {}
+        config["engine"] = engine
+    engine["network"] = "easydeploy-net"
+    if kit_branch:
+        engine["kit_branch"] = normalize_branch(kit_branch)
 
     identity = config.get("identity")
     if not isinstance(identity, dict):
@@ -230,6 +272,10 @@ def main() -> None:
     parser.add_argument("--print-discover", action="store_true")
     parser.add_argument("--discover", action="store_true")
     parser.add_argument("--clone", metavar="KIT", help="Clone a catalog kit next to the engine")
+    parser.add_argument(
+        "--branch",
+        help=f"Git branch to clone (default: {DEFAULT_KIT_BRANCH})",
+    )
     parser.add_argument("--path", type=Path, default=DEFAULT_ENGINE_PATH)
     parser.add_argument("--engine-root", type=Path, default=PROJECT_ROOT)
     args = parser.parse_args()
@@ -238,8 +284,14 @@ def main() -> None:
         return
     if args.clone:
         try:
-            print(clone_named_kit(args.clone, args.engine_root))
-        except (KeyError, FileExistsError, RuntimeError, subprocess.CalledProcessError) as exc:
+            print(clone_named_kit(args.clone, args.engine_root, branch=args.branch))
+        except (
+            KeyError,
+            FileExistsError,
+            RuntimeError,
+            ValueError,
+            subprocess.CalledProcessError,
+        ) as exc:
             print(f"Error: {exc}", file=sys.stderr)
             raise SystemExit(1) from exc
         return
