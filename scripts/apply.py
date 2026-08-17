@@ -11,6 +11,8 @@ from pathlib import Path
 
 import yaml
 
+from scripts.oidc_wire import resolve_kit_path, to_bool, wire_identity
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 COMPOSE_DIR = PROJECT_ROOT / "compose"
 COMPOSE_PROJECT_NAME = "easydeploy-engine"
@@ -73,6 +75,7 @@ def validate_engine(config: dict) -> list[dict]:
                 "name": name,
                 "path": Path(kit_path).expanduser(),
                 "fragment_rel": fragment_rel,
+                "oidc": entry.get("oidc") if isinstance(entry.get("oidc"), dict) else {},
             }
         )
 
@@ -171,9 +174,32 @@ def run_compose(*args: str) -> None:
     subprocess.run(cmd, cwd=COMPOSE_DIR, check=True, env=env)
 
 
-def apply_engine(*, skip_runtime: bool = False, skip_pull: bool = False) -> None:
+def run_kit_applies(enabled: list[dict]) -> None:
+    """Re-apply kits so they merge OIDC sidecars. Authelia first, then others."""
+    order = sorted(enabled, key=lambda item: (0 if item["name"] == "authelia" else 1, item["name"]))
+    for service in order:
+        kit_root = resolve_kit_path(service, PROJECT_ROOT)
+        apply_sh = kit_root / "apply.sh"
+        if not apply_sh.is_file():
+            print(f"Skipping kit apply for {service['name']}: {apply_sh} not found", file=sys.stderr)
+            continue
+        print(f"Applying kit {service['name']} ({kit_root})…")
+        subprocess.run(["bash", str(apply_sh)], cwd=kit_root, check=True)
+
+
+def apply_engine(*, skip_runtime: bool = False, skip_pull: bool = False, apply_kits: bool = False) -> None:
     config = load_engine()
     enabled = validate_engine(config)
+
+    identity = config.get("identity") or {}
+    should_apply_kits = apply_kits or to_bool(identity.get("apply_kits"))
+    oidc_notes = wire_identity(config, enabled, PROJECT_ROOT)
+    for line in oidc_notes:
+        print(line)
+
+    if should_apply_kits:
+        run_kit_applies(enabled)
+
     fragments = collect_fragments(enabled)
 
     CADDYFILE.parent.mkdir(parents=True, exist_ok=True)
@@ -199,6 +225,15 @@ def apply_engine(*, skip_runtime: bool = False, skip_pull: bool = False) -> None
     print("Starting shared Caddy…")
     run_compose("up", "-d", "--wait", "--remove-orphans")
     reload_caddy()
+
+    print()
+    print("=== Easy Deploy Engine summary ===")
+    print(f"Network:   {network}")
+    print("Caddy:     easydeploy_caddy (ports 80/443)")
+    print(f"Caddyfile: {CADDYFILE}")
+    for name, path, _ in fragments:
+        print(f"  - {name}: {path}")
+    print()
 
 
 def reload_caddy() -> None:
@@ -227,23 +262,23 @@ def reload_caddy() -> None:
     print(f"Caddy reload failed ({detail}); recreating container…", file=sys.stderr)
     run_compose("up", "-d", "--force-recreate", "--wait", "caddy")
 
-    print()
-    print("=== Easy Deploy Engine summary ===")
-    print(f"Network:   {network}")
-    print(f"Caddy:     easydeploy_caddy (ports 80/443)")
-    print(f"Caddyfile: {CADDYFILE}")
-    for name, path, _ in fragments:
-        print(f"  - {name}: {path}")
-    print()
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Apply easydeploy-engine configuration")
     parser.add_argument("--skip-runtime", action="store_true")
     parser.add_argument("--skip-pull", action="store_true")
+    parser.add_argument(
+        "--apply-kits",
+        action="store_true",
+        help="After writing identity sidecars, re-run each kit apply.sh (used by wizard.sh)",
+    )
     args = parser.parse_args()
     try:
-        apply_engine(skip_runtime=args.skip_runtime, skip_pull=args.skip_pull)
+        apply_engine(
+            skip_runtime=args.skip_runtime,
+            skip_pull=args.skip_pull,
+            apply_kits=args.apply_kits,
+        )
     except (FileNotFoundError, ValueError, RuntimeError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

@@ -1,8 +1,20 @@
 # easydeploy-engine — operator configuration
-# Copy to engine.yaml and run: bash apply.sh
+# Prefer: bash wizard.sh  (clones Authelia/OpenCloud if needed, runs kit wizard.sh, applies)
+# Power user: copy to engine.yaml and run bash apply.sh
 
 engine:
   network: easydeploy-net
+
+# Same-VPS Authelia ↔ OpenCloud OIDC. Sidecars are written into each kit's
+# .*/integration/ directory (operator deploy.yaml is not rewritten).
+# Split VPS / external IdP: set wire: false, or auth.oidc.managed: false on OpenCloud,
+# or identity.consumers.opencloud.domain for a remote OpenCloud client on Authelia.
+identity:
+  wire: auto
+  authorization_policy: two_factor
+  # consumers:
+  #   opencloud:
+  #     domain: cloud.other-vps.example   # Authelia-only host, remote OpenCloud
 
 services:
   authelia:
