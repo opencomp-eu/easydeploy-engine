@@ -113,3 +113,31 @@ def test_collect_caddy_overlays_from_fragment_dir(tmp_path: Path, monkeypatch):
     assert dest is not None
     assert dest.is_file()
     assert "host.docker.internal" in dest.read_text()
+
+
+def test_run_kit_applies_drops_parent_venv(tmp_path, monkeypatch):
+    import subprocess
+
+    import scripts.apply as engine_apply
+
+    kit = tmp_path / "authelia-easy-deploy"
+    kit.mkdir()
+    (kit / "apply.sh").write_text("#!/bin/bash\n")
+    captured: dict = {}
+
+    def fake_run(*args, **kwargs):
+        captured["env"] = kwargs.get("env")
+        return subprocess.CompletedProcess(args[0], 0)
+
+    monkeypatch.setenv("VIRTUAL_ENV", "/opt/engine/.venv")
+    monkeypatch.setenv("UV_PROJECT", "/opt/engine")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(engine_apply, "PROJECT_ROOT", tmp_path)
+
+    engine_apply.run_kit_applies(
+        [{"name": "authelia", "path": str(kit)}]
+    )
+    env = captured["env"]
+    assert env is not None
+    assert "VIRTUAL_ENV" not in env
+    assert "UV_PROJECT" not in env

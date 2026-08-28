@@ -6,6 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib.sh
 source "${SCRIPT_DIR}/scripts/lib.sh"
 
+EASYDEPLOY_INVOKE_ARGS=("$@")
+clear_parent_python_env
+
 ENGINE_YAML="${SCRIPT_DIR}/engine.yaml"
 KIT_BRANCH="${EASYDEPLOY_KIT_BRANCH:-}"
 
@@ -82,6 +85,7 @@ run_kit_wizard() {
 	echo
 	echo -e "${BOLD}  ── ${label} wizard ──${RESET}"
 	echo
+	clear_parent_python_env
 	bash "${kit_dir}/wizard.sh" --from-engine
 	if [[ ! -f "${kit_dir}/deploy.yaml" ]]; then
 		die "${label} wizard did not write deploy.yaml (cancelled?)."
@@ -90,10 +94,13 @@ run_kit_wizard() {
 
 main() {
 	bash "${SCRIPT_DIR}/ensure-dependencies.sh"
+	ensure_docker_group_session "${EASYDEPLOY_INVOKE_ARGS[@]}"
 	cd "${SCRIPT_DIR}"
 
 	print_banner
 	echo -e "  Press Enter to accept a ${CYAN}[default]${RESET}."
+	echo
+	print_data_dir_hint
 	echo
 	echo "  Kits stay independent — you can still clone and run wizard.sh in"
 	echo "  opencloud-easy-deploy on its own. This wizard is the one-VPS path:"

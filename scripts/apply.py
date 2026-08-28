@@ -21,6 +21,9 @@ from scripts.config_edit import (
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / "easydeploy-lib" / "python"))
+import hostfs  # noqa: E402
+
 COMPOSE_DIR = PROJECT_ROOT / "compose"
 COMPOSE_PROJECT_NAME = "easydeploy-engine"
 STATE_DIR = PROJECT_ROOT / ".easydeploy-engine"
@@ -297,7 +300,12 @@ def run_kit_applies(enabled: list[dict]) -> None:
             print(f"Skipping kit apply for {service['name']}: {apply_sh} not found", file=sys.stderr)
             continue
         print(f"Applying kit {service['name']} ({kit_root})…")
-        subprocess.run(["bash", str(apply_sh)], cwd=kit_root, check=True)
+        subprocess.run(
+            ["bash", str(apply_sh)],
+            cwd=kit_root,
+            check=True,
+            env=hostfs.isolated_child_env(),
+        )
 
 
 def apply_engine(
@@ -423,7 +431,7 @@ def main() -> None:
             skip_kits=args.skip_kits,
             sync_kits=args.sync_kits,
         )
-    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+    except (FileNotFoundError, ValueError, RuntimeError, PermissionError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
