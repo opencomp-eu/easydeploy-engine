@@ -308,7 +308,7 @@ def build_stalwart_identity(
             "claim_groups": "groups",
             "require_audience": client_id,
         },
-        "auth_directory": "ldap",
+        "auth_directory": "oidc",
         "ldap": {
             "url": "ldaps://kanidm:3636",
             "base_dn": ldap_base_dn(host),

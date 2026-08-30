@@ -239,7 +239,7 @@ def test_wire_stalwart_same_vps(tmp_path: Path):
     assert identity["ldap"]["url"] == "ldaps://kanidm:3636"
     assert identity["ldap"]["base_dn"] == "dc=idm,dc=test,dc=example"
     assert identity["oidc"]["issuer_url"].endswith("/oauth2/openid/stalwart-webui")
-    assert identity["auth_directory"] == "ldap"
+    assert identity["auth_directory"] == "oidc"
     client = yaml.safe_load(client_path.read_text())
     assert client["public"] is True
     assert client["client_id"] == "stalwart-webui"
@@ -277,7 +277,7 @@ def test_build_stalwart_identity_filters():
     assert identity["ldap"]["bind_dn"] == "dn=token"
     assert identity["oidc"]["username_domain"] == "example.com"
     assert identity["oidc"]["client_id"] == "stalwart-webui"
-    assert identity["auth_directory"] == "ldap"
+    assert identity["auth_directory"] == "oidc"
     assert identity["oidc"]["issuer_url"].endswith("/oauth2/openid/stalwart-webui")
     assert "mail=?" in identity["ldap"]["filter_login"]
     assert "spn=?" in identity["ldap"]["filter_login"]

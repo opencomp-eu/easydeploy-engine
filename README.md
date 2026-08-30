@@ -121,7 +121,7 @@ When Kanidm and an app kit are enabled, `apply.sh` writes integration sidecars s
 
 Then re-apply Kanidm, then the app kit (the engine wizard does this order for you).
 
-Kanidm OIDC issuers are **per client**: `https://idm.example.com/oauth2/openid/opencloud` and `https://idm.example.com/oauth2/openid/matrix`. Stalwart uses Kanidm LDAP (`ldaps://kanidm:3636`) for IMAP/SMTP identity.
+Kanidm OIDC issuers are **per client**: `https://idm.example.com/oauth2/openid/opencloud` and `https://idm.example.com/oauth2/openid/matrix`. Stalwart/Bulwark uses `/oauth2/openid/stalwart-webui` for webmail SSO; IMAP/SMTP clients use a Stalwart app password.
 
 **Same VPS:** kit wizards ask “Use Kanidm on this VPS?” when they find `../kanidm-easy-deploy/deploy.yaml` (the engine wizard auto-accepts).
 
