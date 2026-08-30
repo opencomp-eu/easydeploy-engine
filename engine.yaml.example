@@ -8,25 +8,28 @@ engine:
   # feature/engine until those changes land on main.
   kit_branch: feature/engine
 
-# Same-VPS Authelia ↔ OpenCloud / Matrix OIDC. Sidecars are written into each kit's
-# .*/integration/ directory (operator deploy.yaml is not rewritten).
+# Same-VPS Kanidm ↔ OpenCloud / Matrix / Stalwart. Sidecars are written into each
+# kit's .*/integration/ directory (operator deploy.yaml is not rewritten).
 # Split VPS / external IdP: set wire: false, or auth.oidc.managed: false on OpenCloud,
-# features.sso.managed: false on Matrix, or identity.consumers.<app>.domain for a remote client.
+# features.sso.managed: false on Matrix, identity.managed: false on Stalwart,
+# or identity.consumers.<app>.domain for a remote client.
 identity:
   wire: auto
-  authorization_policy: two_factor
   # consumers:
   #   opencloud:
-  #     domain: cloud.other-vps.example   # Authelia-only host, remote OpenCloud
+  #     domain: cloud.other-vps.example   # Kanidm-only host, remote OpenCloud
   #   matrix:
   #     domain: matrix.other-vps.example
+  #   stalwart:
+  #     hostname: mail.other-vps.example
+  #     mail_domain: other-vps.example
 
 services:
-  authelia:
+  kanidm:
     enabled: false
-    path: ../authelia-easy-deploy
-    fragment: .authelia-easy-deploy/integration/caddy.caddy
-    # deploy: kits/authelia.yaml   # default when that file exists
+    path: ../kanidm-easy-deploy
+    fragment: .kanidm-easy-deploy/integration/caddy.caddy
+    # deploy: kits/kanidm.yaml   # default when that file exists
   opencloud:
     enabled: false
     path: ../opencloud-easy-deploy

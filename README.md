@@ -4,7 +4,29 @@ Shared **Caddy on :443** and **`easydeploy-net`** for running multiple Easy Depl
 
 Each product kit can use `proxy.mode: integrate` to emit a Caddy fragment; this engine assembles them and runs a single `easydeploy_caddy` container.
 
-Kits stay independent: you can still clone [opencloud-easy-deploy](https://github.com/opencomp-eu/opencloud-easy-deploy) (or Authelia, or Matrix) and run `bash wizard.sh` on its own. The engine is the **one-VPS** path that clones those repos as siblings and runs their wizards for you.
+Kits stay independent: you can still clone [opencloud-easy-deploy](https://github.com/opencomp-eu/opencloud-easy-deploy) (or Kanidm, or Matrix) and run `bash wizard.sh` on its own. The engine is the **one-VPS** path that clones those repos as siblings and runs their wizards for you.
+
+## Identity
+
+[Kanidm](https://kanidm.com/) is the organisation identity source. Users, groups, and authentication live there. Applications do **not** keep their own account databases for normal login.
+
+```
+                    EasyDeploy
+                        │
+                        ▼
+                     Kanidm
+                  users / groups
+                  authentication
+                  OIDC / LDAP
+                        │
+              ┌─────────┼─────────┐
+              │         │         │
+             OIDC      OIDC      LDAP
+              │         │         │
+          OpenCloud   Matrix    Stalwart
+```
+
+See [docs/integrated-vps.md](docs/integrated-vps.md) and [kanidm-easy-deploy/docs/identity.md](../kanidm-easy-deploy/docs/identity.md).
 
 ## Quick start (integrated VPS)
 
@@ -16,10 +38,10 @@ bash wizard.sh
 
 The wizard can:
 
-1. Clone Authelia, OpenCloud, Matrix, and/or Stalwart next to this repo (if they are not already there), or **update existing checkouts** to `engine.kit_branch`, with `git clone --recurse-submodules --branch <branch>`.
+1. Clone Kanidm, OpenCloud, Matrix, and/or Stalwart next to this repo (if they are not already there), or **update existing checkouts** to `engine.kit_branch`, with `git clone --recurse-submodules --branch <branch>`.
 2. Run each kit’s `wizard.sh` (domains, admin user, …).
 3. Switch those kits to `proxy.mode: integrate`.
-4. Apply Authelia then apps, wire OpenCloud and Matrix OIDC sidecars, and start shared Caddy.
+4. Apply Kanidm then apps, wire OpenCloud and Matrix OIDC plus Stalwart LDAP, and start shared Caddy.
 
 The clone branch defaults to `feature/engine` (where the engine-aware kit changes live today). After those land on `main`, set `engine.kit_branch: main` in `engine.yaml`, pass `--branch main`, or answer `main` in the wizard.
 
@@ -35,12 +57,12 @@ Same model as a kit: desired state in YAML, `apply.sh` converges.
 git clone --recurse-submodules https://github.com/opencomp-eu/easydeploy-engine.git
 cd easydeploy-engine
 cp engine.yaml.example engine.yaml
-# enable authelia + opencloud + matrix + stalwart in engine.yaml
+# enable kanidm + opencloud + matrix + stalwart in engine.yaml
 
 # One-time: clone kits so you can copy examples (or let the first apply.sh clone them)
 bash apply.sh --ensure-dependencies   # fails until deploy YAML exists — that's ok
 
-cp ../authelia-easy-deploy/deploy.yaml.example kits/authelia.yaml
+cp ../kanidm-easy-deploy/deploy.yaml.example kits/kanidm.yaml
 cp ../opencloud-easy-deploy/deploy.yaml.example kits/opencloud.yaml
 cp ../matrix-easy-deploy/deploy.yaml.example kits/matrix.yaml
 cp ../stalwart-easy-deploy/deploy.yaml.example kits/stalwart.yaml
@@ -54,7 +76,7 @@ bash apply.sh
 1. Clones missing sibling kits on `engine.kit_branch` (`--sync-kits` also updates existing clones).
 2. Copies `kits/<name>.yaml` → `<kit>/deploy.yaml` when that file exists (override with `services.<name>.deploy`).
 3. Sets `proxy.mode: integrate` on each kit.
-4. Writes OIDC sidecars, applies Authelia then apps, starts shared Caddy.
+4. Writes identity sidecars, applies Kanidm then apps, starts shared Caddy.
 
 Later changes: edit `kits/opencloud.yaml` (or `engine.yaml`) and run `bash apply.sh` again.
 
@@ -64,7 +86,7 @@ If `kits/<name>.yaml` is absent, the kit’s own `deploy.yaml` is used — so yo
 
 ## Kit contract
 
-A kit the engine can clone and run looks like this (Authelia, OpenCloud, Matrix, and Stalwart already do):
+A kit the engine can clone and run looks like this (Kanidm, OpenCloud, Matrix, and Stalwart already do):
 
 | File | Role |
 |------|------|
@@ -76,7 +98,7 @@ A kit the engine can clone and run looks like this (Authelia, OpenCloud, Matrix,
 
 Checkout layout (siblings of this repo), cloned on `engine.kit_branch` (default `feature/engine`):
 
-- `../authelia-easy-deploy` ← `https://github.com/opencomp-eu/authelia-easy-deploy.git`
+- `../kanidm-easy-deploy` ← `https://github.com/opencomp-eu/kanidm-easy-deploy.git`
 - `../opencloud-easy-deploy` ← `https://github.com/opencomp-eu/opencloud-easy-deploy.git`
 - `../matrix-easy-deploy` ← `https://github.com/opencomp-eu/matrix-easy-deploy.git`
 - `../stalwart-easy-deploy` ← `https://github.com/opencomp-eu/stalwart-easy-deploy.git`
@@ -88,19 +110,22 @@ See [engine.yaml.example](engine.yaml.example). Each enabled service needs:
 - `path` — root of the kit checkout
 - `fragment` — relative path to the Caddy snippet (written by that kit’s apply)
 
-### OIDC wiring (Authelia + OpenCloud / Matrix)
+### Identity wiring (Kanidm + OpenCloud / Matrix / Stalwart)
 
-When Authelia and OpenCloud or Matrix are enabled, `apply.sh` writes integration sidecars so you do **not** have to paste OIDC client YAML by hand:
+When Kanidm and an app kit are enabled, `apply.sh` writes integration sidecars so you do **not** have to paste OIDC/LDAP config by hand:
 
-1. Authelia client → `.authelia-easy-deploy/integration/oidc-clients.d/<id>.yaml`
+1. Kanidm OAuth2 client → `.kanidm-easy-deploy/integration/oidc-clients.d/<id>.yaml`
 2. OpenCloud IdP settings → `.opencloud-easy-deploy/integration/oidc-provider.yaml`
 3. Matrix MAS upstream → `.matrix-easy-deploy/integration/oidc-provider.yaml`
+4. Stalwart directory → `.stalwart-easy-deploy/integration/identity-provider.yaml`
 
-Then re-apply Authelia, then the app kit (the engine wizard does this order for you).
+Then re-apply Kanidm, then the app kit (the engine wizard does this order for you).
 
-**Same VPS:** kit wizards ask “Use Authelia on this VPS?” when they find `../authelia-easy-deploy/deploy.yaml` (the engine wizard auto-accepts).
+Kanidm OIDC issuers are **per client**: `https://idm.example.com/oauth2/openid/opencloud` and `https://idm.example.com/oauth2/openid/matrix`. Stalwart uses Kanidm LDAP (`ldaps://kanidm:3636`) for IMAP/SMTP identity.
 
-**Split VPS:** leave the app off this engine; set `auth.oidc` (OpenCloud) or `features.sso` (Matrix) on the other host. On the Authelia host you can still register a remote client with:
+**Same VPS:** kit wizards ask “Use Kanidm on this VPS?” when they find `../kanidm-easy-deploy/deploy.yaml` (the engine wizard auto-accepts).
+
+**Split VPS:** leave the app off this engine; set `auth.oidc` (OpenCloud) or `features.sso` (Matrix) or `identity` (Stalwart) on the other host. On the Kanidm host you can still register a remote client with:
 
 ```yaml
 identity:
@@ -109,9 +134,12 @@ identity:
       domain: cloud.other-vps.example
     matrix:
       domain: matrix.other-vps.example
+    stalwart:
+      hostname: mail.other-vps.example
+      mail_domain: other-vps.example
 ```
 
-**Opt out:** `identity.wire: false`, or `auth.oidc.managed: false` / `auth.oidc.provider: keycloak` on OpenCloud, or `features.sso.managed: false` / a non-Authelia `features.sso.providers` list on Matrix.
+**Opt out:** `identity.wire: false`, or `auth.oidc.managed: false` / `auth.oidc.provider: keycloak` on OpenCloud, or `features.sso.managed: false` / a non-Kanidm `features.sso.providers` list on Matrix, or `identity.managed: false` on Stalwart.
 
 ## MVP limits
 
@@ -126,4 +154,3 @@ uv run pytest
 ```
 
 See also [docs/integrated-vps.md](docs/integrated-vps.md) and each kit’s integration docs.
-

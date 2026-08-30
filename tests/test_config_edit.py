@@ -35,13 +35,13 @@ def _write_kit(parent: Path, dirname: str, *, deploy: bool = True) -> Path:
 def test_discover_kits_siblings(tmp_path: Path):
     engine = tmp_path / "easydeploy-engine"
     engine.mkdir()
-    _write_kit(tmp_path, "authelia-easy-deploy")
+    _write_kit(tmp_path, "kanidm-easy-deploy")
     _write_kit(tmp_path, "opencloud-easy-deploy", deploy=False)
 
     kits = {item["name"]: item for item in discover_kits(engine)}
-    assert "authelia" in kits
-    assert kits["authelia"]["rel_path"] == "../authelia-easy-deploy"
-    assert kits["authelia"]["has_deploy"] is True
+    assert "kanidm" in kits
+    assert kits["kanidm"]["rel_path"] == "../kanidm-easy-deploy"
+    assert kits["kanidm"]["has_deploy"] is True
     assert kits["opencloud"]["has_deploy"] is False
     assert "matrix" not in kits
 
@@ -49,13 +49,13 @@ def test_discover_kits_siblings(tmp_path: Path):
 def test_emit_wizard_discover(tmp_path: Path):
     engine = tmp_path / "easydeploy-engine"
     engine.mkdir()
-    _write_kit(tmp_path, "authelia-easy-deploy")
+    _write_kit(tmp_path, "kanidm-easy-deploy")
 
     text = emit_wizard_discover(engine)
     assert "KIT_BRANCH_DEFAULT=feature/engine" in text
-    assert "AUTHELIA_FOUND=y" in text
-    assert "AUTHELIA_HAS_DEPLOY=y" in text
-    assert "AUTHELIA_HAS_WIZARD=y" in text
+    assert "KANIDM_FOUND=y" in text
+    assert "KANIDM_HAS_DEPLOY=y" in text
+    assert "KANIDM_HAS_WIZARD=y" in text
     assert "OPENCLOUD_FOUND=n" in text
     assert "OPENCLOUD_PATH=../opencloud-easy-deploy" in text
     assert "OPENCLOUD_REPO=https://github.com/opencomp-eu/opencloud-easy-deploy.git" in text
@@ -67,7 +67,7 @@ def test_emit_wizard_discover(tmp_path: Path):
 
 
 def test_set_proxy_integrate_writes_mode(tmp_path: Path):
-    kit = _write_kit(tmp_path, "authelia-easy-deploy")
+    kit = _write_kit(tmp_path, "kanidm-easy-deploy")
     assert set_proxy_integrate(kit) is True
     data = yaml.safe_load((kit / "deploy.yaml").read_text())
     assert data["proxy"]["mode"] == "integrate"
@@ -89,22 +89,21 @@ def test_update_from_wizard_enables_and_drops_apply_kits(tmp_path: Path):
             {
                 "engine": {"network": "easydeploy-net"},
                 "identity": {"wire": "auto", "apply_kits": True},
-                "services": {"authelia": {"enabled": False, "path": "../old"}},
+                "services": {"kanidm": {"enabled": False, "path": "../old"}},
             }
         )
     )
     kits = [
         {
-            "name": "authelia",
-            "rel_path": "../authelia-easy-deploy",
-            "fragment": ".authelia-easy-deploy/integration/caddy.caddy",
+            "name": "kanidm",
+            "rel_path": "../kanidm-easy-deploy",
+            "fragment": ".kanidm-easy-deploy/integration/caddy.caddy",
         }
     ]
     update_from_wizard(
-        enabled=["authelia", "opencloud"],
+        enabled=["kanidm", "opencloud"],
         kits=kits,
         wire=True,
-        authorization_policy="two_factor",
         kit_branch="feature/engine",
         path=engine_yaml,
         example=example,
@@ -112,9 +111,10 @@ def test_update_from_wizard_enables_and_drops_apply_kits(tmp_path: Path):
     data = yaml.safe_load(engine_yaml.read_text())
     assert data["identity"]["wire"] == "auto"
     assert "apply_kits" not in data["identity"]
+    assert "authorization_policy" not in data["identity"]
     assert data["engine"]["kit_branch"] == "feature/engine"
-    assert data["services"]["authelia"]["enabled"] is True
-    assert data["services"]["authelia"]["path"] == "../authelia-easy-deploy"
+    assert data["services"]["kanidm"]["enabled"] is True
+    assert data["services"]["kanidm"]["path"] == "../kanidm-easy-deploy"
     assert data["services"]["opencloud"]["enabled"] is True
     assert data["services"]["matrix"]["enabled"] is False
     assert data["services"]["stalwart"]["enabled"] is False
@@ -198,7 +198,7 @@ def test_clone_kit_updates_existing_checkout(tmp_path: Path):
 
 
 def test_clone_kit_rejects_non_kit_dir(tmp_path: Path):
-    dest = tmp_path / "authelia-easy-deploy"
+    dest = tmp_path / "kanidm-easy-deploy"
     dest.mkdir()
     (dest / "README.md").write_text("nope\n")
     with pytest.raises(FileExistsError, match="not an Easy Deploy kit"):

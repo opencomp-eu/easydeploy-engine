@@ -22,9 +22,9 @@ print_banner() {
 usage() {
 	echo "Usage: bash wizard.sh [--branch <name>]"
 	echo
-	echo "Clones or updates Authelia / OpenCloud / Matrix / Stalwart next to the engine (git clone"
+	echo "Clones or updates Kanidm / OpenCloud / Matrix / Stalwart next to the engine (git clone"
 	echo "--recurse-submodules --branch <name>), runs each kit's wizard.sh,"
-	echo "switches them to proxy.mode: integrate, and applies Authelia → apps →"
+	echo "switches them to proxy.mode: integrate, and applies Kanidm → apps →"
 	echo "shared Caddy."
 	echo
 	echo "  --branch   Git branch to clone (default: feature/engine; use main later)"
@@ -107,22 +107,22 @@ main() {
 	echo "  clone siblings, run their wizards, share one Caddy."
 	echo
 
-	# AUTHELIA_FOUND, AUTHELIA_PATH, AUTHELIA_REPO, OPENCLOUD_*, MATRIX_*, STALWART_*
+	# KANIDM_FOUND, KANIDM_PATH, KANIDM_REPO, OPENCLOUD_*, MATRIX_*, STALWART_*
 	refresh_discover
 
-	local enable_authelia="n" enable_opencloud="n" enable_matrix="n" enable_stalwart="n"
-	local wire_oidc="n" authz_policy="two_factor" proceed
-	local authelia_git="" opencloud_git="" matrix_git="" stalwart_git=""
+	local enable_kanidm="n" enable_opencloud="n" enable_matrix="n" enable_stalwart="n"
+	local wire_oidc="n" proceed
+	local kanidm_git="" opencloud_git="" matrix_git="" stalwart_git=""
 
 	echo -e "${BOLD}  Services on this VPS${RESET}"
-	if [[ "${AUTHELIA_FOUND}" == "y" ]]; then
-		if [[ "${AUTHELIA_HAS_DEPLOY}" != "y" ]]; then
-			info "Found ${AUTHELIA_PATH} — will run its wizard.sh (no deploy.yaml yet)."
+	if [[ "${KANIDM_FOUND}" == "y" ]]; then
+		if [[ "${KANIDM_HAS_DEPLOY}" != "y" ]]; then
+			info "Found ${KANIDM_PATH} — will run its wizard.sh (no deploy.yaml yet)."
 		fi
-		ask_yn enable_authelia "Enable Authelia?" "y"
+		ask_yn enable_kanidm "Enable Kanidm (identity)?" "y"
 	else
-		info "Authelia is not cloned (will clone ${AUTHELIA_REPO})."
-		ask_yn enable_authelia "Enable Authelia?" "y"
+		info "Kanidm is not cloned (will clone ${KANIDM_REPO})."
+		ask_yn enable_kanidm "Enable Kanidm (identity)?" "y"
 	fi
 	if [[ "${OPENCLOUD_FOUND}" == "y" ]]; then
 		if [[ "${OPENCLOUD_HAS_DEPLOY}" != "y" ]]; then
@@ -152,11 +152,11 @@ main() {
 		ask_yn enable_stalwart "Enable Stalwart (mail + Bulwark)?" "n"
 	fi
 
-	if [[ "${enable_authelia}" != "y" && "${enable_opencloud}" != "y" && "${enable_matrix}" != "y" && "${enable_stalwart}" != "y" ]]; then
+	if [[ "${enable_kanidm}" != "y" && "${enable_opencloud}" != "y" && "${enable_matrix}" != "y" && "${enable_stalwart}" != "y" ]]; then
 		die "Enable at least one service."
 	fi
 
-	if [[ "${enable_authelia}" == "y" || "${enable_opencloud}" == "y" || "${enable_matrix}" == "y" || "${enable_stalwart}" == "y" ]]; then
+	if [[ "${enable_kanidm}" == "y" || "${enable_opencloud}" == "y" || "${enable_matrix}" == "y" || "${enable_stalwart}" == "y" ]]; then
 		echo
 		echo -e "${BOLD}  Git clone${RESET}"
 		echo "  Enabled kits are cloned or updated: git fetch + checkout --recurse-submodules."
@@ -172,29 +172,26 @@ main() {
 		KIT_BRANCH="${KIT_BRANCH:-${KIT_BRANCH_DEFAULT}}"
 	fi
 
-	if [[ "${enable_authelia}" == "y" && ( "${enable_opencloud}" == "y" || "${enable_matrix}" == "y" ) ]]; then
+	if [[ "${enable_kanidm}" == "y" && ( "${enable_opencloud}" == "y" || "${enable_matrix}" == "y" || "${enable_stalwart}" == "y" ) ]]; then
 		echo
 		echo -e "${BOLD}  Identity${RESET}"
-		local wire_prompt="Wire login through Authelia (recommended on one VPS)?"
-		if [[ "${enable_opencloud}" == "y" && "${enable_matrix}" == "y" ]]; then
-			wire_prompt="Wire OpenCloud and Matrix login through Authelia (recommended on one VPS)?"
+		local wire_prompt="Wire login through Kanidm (recommended on one VPS)?"
+		if [[ "${enable_opencloud}" == "y" && "${enable_matrix}" == "y" && "${enable_stalwart}" == "y" ]]; then
+			wire_prompt="Wire OpenCloud, Matrix, and Stalwart through Kanidm (recommended on one VPS)?"
+		elif [[ "${enable_opencloud}" == "y" && "${enable_matrix}" == "y" ]]; then
+			wire_prompt="Wire OpenCloud and Matrix login through Kanidm (recommended on one VPS)?"
 		elif [[ "${enable_opencloud}" == "y" ]]; then
-			wire_prompt="Wire OpenCloud login through Authelia (recommended on one VPS)?"
+			wire_prompt="Wire OpenCloud login through Kanidm (recommended on one VPS)?"
+		elif [[ "${enable_matrix}" == "y" ]]; then
+			wire_prompt="Wire Matrix login through Kanidm (recommended on one VPS)?"
 		else
-			wire_prompt="Wire Matrix login through Authelia (recommended on one VPS)?"
+			wire_prompt="Wire Stalwart identity through Kanidm (recommended on one VPS)?"
 		fi
 		ask_yn wire_oidc "${wire_prompt}" "y"
-		if [[ "${wire_oidc}" == "y" ]]; then
-			ask authz_policy "Authelia policy: one_factor or two_factor" "two_factor"
-			authz_policy="${authz_policy,,}"
-			if [[ "${authz_policy}" != "one_factor" && "${authz_policy}" != "two_factor" ]]; then
-				die "authorization policy must be 'one_factor' or 'two_factor'"
-			fi
-		fi
 	fi
 
-	if [[ "${enable_authelia}" == "y" ]]; then
-		if [[ "${AUTHELIA_FOUND}" == "y" ]]; then authelia_git=" (update)"; else authelia_git=" (clone)"; fi
+	if [[ "${enable_kanidm}" == "y" ]]; then
+		if [[ "${KANIDM_FOUND}" == "y" ]]; then kanidm_git=" (update)"; else kanidm_git=" (clone)"; fi
 	fi
 	if [[ "${enable_opencloud}" == "y" ]]; then
 		if [[ "${OPENCLOUD_FOUND}" == "y" ]]; then opencloud_git=" (update)"; else opencloud_git=" (clone)"; fi
@@ -208,15 +205,12 @@ main() {
 
 	echo
 	echo -e "${BOLD}  Summary${RESET}"
-	echo "  Authelia:   ${enable_authelia}${authelia_git}"
+	echo "  Kanidm:     ${enable_kanidm}${kanidm_git}"
 	echo "  OpenCloud:  ${enable_opencloud}${opencloud_git}"
 	echo "  Matrix:     ${enable_matrix}${matrix_git}"
 	echo "  Stalwart:   ${enable_stalwart}${stalwart_git}"
-	echo "  OIDC wire:  ${wire_oidc}"
-	if [[ "${wire_oidc}" == "y" ]]; then
-		echo "  Policy:     ${authz_policy}"
-	fi
-	if [[ "${enable_authelia}" == "y" || "${enable_opencloud}" == "y" || "${enable_matrix}" == "y" || "${enable_stalwart}" == "y" ]]; then
+	echo "  Identity:   ${wire_oidc}"
+	if [[ "${enable_kanidm}" == "y" || "${enable_opencloud}" == "y" || "${enable_matrix}" == "y" || "${enable_stalwart}" == "y" ]]; then
 		echo "  Git:        --recurse-submodules --branch ${KIT_BRANCH}"
 	fi
 	echo
@@ -229,8 +223,8 @@ main() {
 		exit 0
 	}
 
-	if [[ "${enable_authelia}" == "y" ]]; then
-		clone_kit authelia Authelia
+	if [[ "${enable_kanidm}" == "y" ]]; then
+		clone_kit kanidm Kanidm
 	fi
 	if [[ "${enable_opencloud}" == "y" ]]; then
 		clone_kit opencloud OpenCloud
@@ -243,12 +237,12 @@ main() {
 	fi
 	refresh_discover
 
-	# Authelia first so OpenCloud / Matrix wizards can detect a local IdP.
-	if [[ "${enable_authelia}" == "y" ]]; then
-		run_kit_wizard "${SCRIPT_DIR}/${AUTHELIA_PATH}" "Authelia" "${AUTHELIA_HAS_DEPLOY}"
+	# Kanidm first so OpenCloud / Matrix / Stalwart wizards can detect a local IdP.
+	if [[ "${enable_kanidm}" == "y" ]]; then
+		run_kit_wizard "${SCRIPT_DIR}/${KANIDM_PATH}" "Kanidm" "${KANIDM_HAS_DEPLOY}"
 		refresh_discover
-		if [[ -f "${SCRIPT_DIR}/${AUTHELIA_PATH}/deploy.yaml" ]]; then
-			export EASYDEPLOY_AUTHELIA_DEPLOY="$(cd "${SCRIPT_DIR}/${AUTHELIA_PATH}" && pwd)/deploy.yaml"
+		if [[ -f "${SCRIPT_DIR}/${KANIDM_PATH}/deploy.yaml" ]]; then
+			export EASYDEPLOY_KANIDM_DEPLOY="$(cd "${SCRIPT_DIR}/${KANIDM_PATH}" && pwd)/deploy.yaml"
 		fi
 	fi
 	if [[ "${enable_opencloud}" == "y" ]]; then
@@ -271,8 +265,8 @@ from pathlib import Path
 root = Path(${SCRIPT_DIR@Q})
 kits = discover_kits(root)
 enabled = []
-if ${enable_authelia@Q} == "y":
-    enabled.append("authelia")
+if ${enable_kanidm@Q} == "y":
+    enabled.append("kanidm")
 if ${enable_opencloud@Q} == "y":
     enabled.append("opencloud")
 if ${enable_matrix@Q} == "y":
@@ -284,7 +278,6 @@ update_from_wizard(
     enabled=enabled,
     kits=kits,
     wire=${wire_oidc@Q} == "y",
-    authorization_policy=${authz_policy@Q},
     kit_branch=${KIT_BRANCH@Q} or None,
     path=Path(${ENGINE_YAML@Q}),
 )

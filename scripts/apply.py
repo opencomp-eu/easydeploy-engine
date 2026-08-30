@@ -34,6 +34,7 @@ CADDYFILE = PROJECT_ROOT / "caddy" / "Caddyfile"
 DEFAULT_NETWORK = "easydeploy-net"
 
 KNOWN_STANDALONE_CADDY_CONTAINERS = (
+    "kanidm_caddy",
     "authelia_caddy",
     "opencloud_caddy",
     "stalwart_caddy",
@@ -291,8 +292,8 @@ def ensure_enabled_kits(
 
 
 def run_kit_applies(enabled: list[dict]) -> None:
-    """Re-apply kits so they merge OIDC sidecars. Authelia first, then others."""
-    order = sorted(enabled, key=lambda item: (0 if item["name"] == "authelia" else 1, item["name"]))
+    """Re-apply kits so they merge identity sidecars. Kanidm first, then others."""
+    order = sorted(enabled, key=lambda item: (0 if item["name"] == "kanidm" else 1, item["name"]))
     for service in order:
         kit_root = resolve_kit_path(service, PROJECT_ROOT)
         apply_sh = kit_root / "apply.sh"

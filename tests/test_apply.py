@@ -29,53 +29,53 @@ def test_compose_project_name_is_unique():
 
 
 def test_collect_and_render_fragments(tmp_path: Path):
-    kit = tmp_path / "authelia"
-    frag = kit / ".authelia-easy-deploy" / "integration"
+    kit = tmp_path / "kanidm"
+    frag = kit / ".kanidm-easy-deploy" / "integration"
     frag.mkdir(parents=True)
-    (frag / "caddy.caddy").write_text("auth.test.example {\n    reverse_proxy authelia:9091\n}\n")
+    (frag / "caddy.caddy").write_text("idm.test.example {\n    reverse_proxy https://kanidm:8443\n}\n")
 
     enabled = [
         {
-            "name": "authelia",
+            "name": "kanidm",
             "path": kit,
-            "fragment_rel": ".authelia-easy-deploy/integration/caddy.caddy",
+            "fragment_rel": ".kanidm-easy-deploy/integration/caddy.caddy",
         }
     ]
     fragments = collect_fragments(enabled)
     assert len(fragments) == 1
     caddy = render_caddyfile(fragments)
-    assert "auth.test.example" in caddy
-    assert "authelia-easy-deploy" in caddy
+    assert "idm.test.example" in caddy
+    assert "kanidm-easy-deploy" in caddy
 
 
 def test_resolve_operator_deploy_uses_kits_dir(tmp_path: Path):
     kits = tmp_path / "kits"
     kits.mkdir()
-    (kits / "authelia.yaml").write_text("authelia: {}\n")
-    assert resolve_operator_deploy("authelia", None, tmp_path) == (kits / "authelia.yaml").resolve()
+    (kits / "kanidm.yaml").write_text("kanidm: {}\n")
+    assert resolve_operator_deploy("kanidm", None, tmp_path) == (kits / "kanidm.yaml").resolve()
     assert resolve_operator_deploy("opencloud", None, tmp_path) is None
-    assert resolve_operator_deploy("authelia", False, tmp_path) is None
-    assert resolve_operator_deploy("authelia", "custom.yaml", tmp_path) == (tmp_path / "custom.yaml").resolve()
+    assert resolve_operator_deploy("kanidm", False, tmp_path) is None
+    assert resolve_operator_deploy("kanidm", "custom.yaml", tmp_path) == (tmp_path / "custom.yaml").resolve()
 
 
 def test_seed_kit_deploy_copies_and_sets_integrate(tmp_path: Path):
     import yaml
 
-    kit = tmp_path / "authelia-easy-deploy"
+    kit = tmp_path / "kanidm-easy-deploy"
     kit.mkdir()
-    seed = tmp_path / "kits" / "authelia.yaml"
+    seed = tmp_path / "kits" / "kanidm.yaml"
     seed.parent.mkdir()
-    seed.write_text("authelia:\n  domain: auth.example.com\nproxy:\n  type: caddy\n  mode: standalone\n")
+    seed.write_text("kanidm:\n  domain: idm.example.com\nproxy:\n  type: caddy\n  mode: standalone\n")
     service = {
-        "name": "authelia",
+        "name": "kanidm",
         "path": kit,
-        "fragment_rel": ".authelia-easy-deploy/integration/caddy.caddy",
+        "fragment_rel": ".kanidm-easy-deploy/integration/caddy.caddy",
         "deploy": None,
     }
     dest = seed_kit_deploy(service, tmp_path)
     data = yaml.safe_load(dest.read_text())
     assert dest == kit / "deploy.yaml"
-    assert data["authelia"]["domain"] == "auth.example.com"
+    assert data["kanidm"]["domain"] == "idm.example.com"
     assert data["proxy"]["mode"] == "integrate"
 
 
@@ -120,7 +120,7 @@ def test_run_kit_applies_drops_parent_venv(tmp_path, monkeypatch):
 
     import scripts.apply as engine_apply
 
-    kit = tmp_path / "authelia-easy-deploy"
+    kit = tmp_path / "kanidm-easy-deploy"
     kit.mkdir()
     (kit / "apply.sh").write_text("#!/bin/bash\n")
     captured: dict = {}
@@ -135,7 +135,7 @@ def test_run_kit_applies_drops_parent_venv(tmp_path, monkeypatch):
     monkeypatch.setattr(engine_apply, "PROJECT_ROOT", tmp_path)
 
     engine_apply.run_kit_applies(
-        [{"name": "authelia", "path": str(kit)}]
+        [{"name": "kanidm", "path": str(kit)}]
     )
     env = captured["env"]
     assert env is not None

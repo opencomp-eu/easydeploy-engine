@@ -24,11 +24,11 @@ DEFAULT_KIT_BRANCH = "feature/engine"
 # repo as a sibling and run wizard.sh. Kits stay standalone-deployable on their own.
 KIT_CATALOG: tuple[dict[str, Any], ...] = (
     {
-        "name": "authelia",
-        "dirname": "authelia-easy-deploy",
-        "repo": "https://github.com/opencomp-eu/authelia-easy-deploy.git",
-        "fragment": ".authelia-easy-deploy/integration/caddy.caddy",
-        "label": "Authelia",
+        "name": "kanidm",
+        "dirname": "kanidm-easy-deploy",
+        "repo": "https://github.com/opencomp-eu/kanidm-easy-deploy.git",
+        "fragment": ".kanidm-easy-deploy/integration/caddy.caddy",
+        "label": "Kanidm",
         "orchestrate": True,
         "branch": DEFAULT_KIT_BRANCH,
     },
@@ -248,15 +248,11 @@ def update_from_wizard(
     enabled: list[str],
     kits: list[dict[str, Any]],
     wire: bool,
-    authorization_policy: str,
+    authorization_policy: str = "",
     path: Path = DEFAULT_ENGINE_PATH,
     example: Path | None = None,
     kit_branch: str | None = None,
 ) -> None:
-    policy = authorization_policy.strip().lower()
-    if policy not in {"one_factor", "two_factor"}:
-        raise ValueError("authorization_policy must be 'one_factor' or 'two_factor'")
-
     config = load_or_init(path, example=example)
     engine = config.get("engine")
     if not isinstance(engine, dict):
@@ -271,7 +267,7 @@ def update_from_wizard(
         identity = {}
         config["identity"] = identity
     identity["wire"] = "auto" if wire else False
-    identity["authorization_policy"] = policy
+    identity.pop("authorization_policy", None)
     identity.pop("apply_kits", None)
 
     services = config.get("services")
