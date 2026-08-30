@@ -233,25 +233,56 @@ def build_matrix_provider(
     return provider
 
 
+BULWARK_CALLBACK_LOCALES = (
+    "en",
+    "de",
+    "da",
+    "nl",
+    "fr",
+    "es",
+    "it",
+    "pt",
+    "sv",
+    "pl",
+    "cs",
+    "ja",
+    "zh",
+    "ru",
+)
+
+
 def build_stalwart_client(
     mail_hostname: str,
     *,
     client_id: str = "stalwart-webui",
+    webmail_hostname: str = "",
 ) -> dict[str, Any]:
-    origin = f"https://{mail_hostname.rstrip('/')}"
+    mail = f"https://{mail_hostname.rstrip('/')}"
+    webmail = f"https://{webmail_hostname.rstrip('/')}" if webmail_hostname.strip() else ""
+    landing = webmail or mail
+    redirects = [
+        f"{landing}/",
+        f"{landing}/login",
+        f"{mail}/",
+        f"{mail}/login",
+        f"{mail}/account/oauth/callback",
+        f"{mail}/auth/oidc/callback",
+        f"{mail}/admin",
+    ]
+    if webmail:
+        redirects.extend(
+            [
+                f"{webmail}/auth/callback",
+                *[f"{webmail}/{locale}/auth/callback" for locale in BULWARK_CALLBACK_LOCALES],
+            ]
+        )
     return {
         "client_id": client_id,
-        "client_name": "Stalwart",
+        "client_name": "Webmail" if webmail else "Stalwart",
         "public": True,
         "prefer_short_username": True,
-        "landing_url": origin,
-        "redirect_uris": [
-            f"{origin}/",
-            f"{origin}/login",
-            f"{origin}/account/oauth/callback",
-            f"{origin}/auth/oidc/callback",
-            f"{origin}/admin",
-        ],
+        "landing_url": landing,
+        "redirect_uris": list(dict.fromkeys(redirects)),
         "scopes": ["openid", "profile", "email"],
     }
 
@@ -277,7 +308,7 @@ def build_stalwart_identity(
             "claim_groups": "groups",
             "require_audience": client_id,
         },
-        "auth_directory": "oidc",
+        "auth_directory": "ldap",
         "ldap": {
             "url": "ldaps://kanidm:3636",
             "base_dn": ldap_base_dn(host),
@@ -285,8 +316,8 @@ def build_stalwart_identity(
             "bind_authentication": True,
             "allow_invalid_certs": True,
             "use_tls": True,
-            "filter_login": "(&(objectclass=account)(|(name=?)(mail=?)(spn=?)))",
-            "filter_mailbox": "(&(objectclass=account)(|(mail=?)(spn=?)))",
+            "filter_login": "(&(|(objectclass=account)(objectclass=person))(|(name=?)(uid=?)(mail=?)(spn=?)))",
+            "filter_mailbox": "(&(|(objectclass=account)(objectclass=person))(|(mail=?)(spn=?)))",
             "attr_email": "mail",
             "attr_description": "displayname",
             "attr_member_of": "memberof",
@@ -341,6 +372,19 @@ def read_stalwart_domains(kit_root: Path) -> tuple[str, str]:
     if not domain or domain == "example.com":
         raise ValueError(f"{deploy}: stalwart.domain is not set")
     return hostname, domain
+
+
+def read_webmail_domain(kit_root: Path) -> str:
+    deploy = kit_root / "deploy.yaml"
+    if not deploy.is_file():
+        return ""
+    bulwark = (load_yaml(deploy) or {}).get("bulwark") or {}
+    if managed_is_false(bulwark) or not to_bool(bulwark.get("enabled", True)):
+        return ""
+    domain = str(bulwark.get("domain") or "").strip()
+    if domain in {"", "webmail.example.com"}:
+        return ""
+    return domain
 
 
 def _is_kanidm_sso_provider(provider: Any) -> bool:
@@ -519,7 +563,11 @@ def wire_identity(
         hostname, mail_domain = read_stalwart_domains(kit_root)
         hostname = stalwart_host_override or hostname
         mail_domain = stalwart_mail_domain or mail_domain
-        client = build_stalwart_client(hostname, client_id=stalwart_client_id)
+        webmail = str(stalwart_cfg.get("webmail") or stalwart_cfg.get("webmail_domain") or "").strip()
+        webmail = webmail or read_webmail_domain(kit_root)
+        client = build_stalwart_client(
+            hostname, client_id=stalwart_client_id, webmail_hostname=webmail
+        )
         identity_sidecar = build_stalwart_identity(
             kanidm_domain,
             mail_domain,
@@ -531,12 +579,19 @@ def wire_identity(
         if stalwart_client_id != "stalwart" and stale_client.is_file():
             stale_client.unlink()
         write_sidecar(kit_root / ".stalwart-easy-deploy" / "integration" / "identity-provider.yaml", identity_sidecar)
+        target = webmail or hostname
         notes.append(
-            f"Wired Stalwart ({hostname}) → Kanidm LDAP + OIDC ({kanidm_domain}) as client {stalwart_client_id!r}."
+            f"Wired Stalwart/Webmail ({target}) → Kanidm LDAP + OIDC ({kanidm_domain}) "
+            f"as client {stalwart_client_id!r}."
         )
         wired += 1
     elif stalwart_host_override:
-        client = build_stalwart_client(stalwart_host_override, client_id=stalwart_client_id)
+        remote_webmail = str(stalwart_cfg.get("webmail") or stalwart_cfg.get("webmail_domain") or "").strip()
+        client = build_stalwart_client(
+            stalwart_host_override,
+            client_id=stalwart_client_id,
+            webmail_hostname=remote_webmail,
+        )
         write_sidecar(clients_dir / f"{stalwart_client_id}.yaml", client)
         notes.append(
             f"Wired remote Stalwart ({stalwart_host_override}) client {stalwart_client_id!r} into Kanidm "

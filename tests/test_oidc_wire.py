@@ -10,6 +10,7 @@ from scripts.oidc_wire import (
     build_matrix_client,
     build_opencloud_client,
     build_opencloud_provider,
+    build_stalwart_client,
     build_stalwart_identity,
     identity_wire_enabled,
     kanidm_issuer_url,
@@ -48,7 +49,12 @@ def _kit_stalwart(root: Path, hostname: str = "mail.test.example") -> Path:
     kit = root / "stalwart-easy-deploy"
     kit.mkdir()
     (kit / "deploy.yaml").write_text(
-        yaml.safe_dump({"stalwart": {"hostname": hostname, "domain": "test.example"}})
+        yaml.safe_dump(
+            {
+                "stalwart": {"hostname": hostname, "domain": "test.example"},
+                "bulwark": {"enabled": True, "domain": "webmail.test.example"},
+            }
+        )
     )
     return kit
 
@@ -233,10 +239,13 @@ def test_wire_stalwart_same_vps(tmp_path: Path):
     assert identity["ldap"]["url"] == "ldaps://kanidm:3636"
     assert identity["ldap"]["base_dn"] == "dc=idm,dc=test,dc=example"
     assert identity["oidc"]["issuer_url"].endswith("/oauth2/openid/stalwart-webui")
-    assert identity["auth_directory"] == "oidc"
+    assert identity["auth_directory"] == "ldap"
     client = yaml.safe_load(client_path.read_text())
     assert client["public"] is True
     assert client["client_id"] == "stalwart-webui"
+    assert client["client_name"] == "Webmail"
+    assert client["landing_url"] == "https://webmail.test.example"
+    assert "https://webmail.test.example/en/auth/callback" in client["redirect_uris"]
     assert any("Wired Stalwart" in line for line in notes)
 
 
@@ -255,12 +264,20 @@ def test_wire_stalwart_removes_legacy_client_sidecar(tmp_path: Path):
     assert (clients_dir / "stalwart-webui.yaml").is_file()
 
 
+def test_build_stalwart_client_points_at_webmail():
+    client = build_stalwart_client("mail.example.com", webmail_hostname="webmail.example.com")
+    assert client["client_name"] == "Webmail"
+    assert client["landing_url"] == "https://webmail.example.com"
+    assert "https://webmail.example.com/auth/callback" in client["redirect_uris"]
+    assert "https://webmail.example.com/en/auth/callback" in client["redirect_uris"]
+
+
 def test_build_stalwart_identity_filters():
     identity = build_stalwart_identity("idm.example.com", "example.com")
     assert identity["ldap"]["bind_dn"] == "dn=token"
     assert identity["oidc"]["username_domain"] == "example.com"
     assert identity["oidc"]["client_id"] == "stalwart-webui"
-    assert identity["auth_directory"] == "oidc"
+    assert identity["auth_directory"] == "ldap"
     assert identity["oidc"]["issuer_url"].endswith("/oauth2/openid/stalwart-webui")
     assert "mail=?" in identity["ldap"]["filter_login"]
     assert "spn=?" in identity["ldap"]["filter_login"]
