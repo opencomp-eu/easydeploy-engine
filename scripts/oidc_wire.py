@@ -35,7 +35,10 @@ _CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 MAS_PATH_PREFIX = "/auth"
 KANIDM_SSO_NAME = "Kanidm"
 DEFAULT_MATRIX_CLIENT_ID = "matrix"
-DEFAULT_OIDC_SCOPES = ["openid", "profile", "email", "groups", "groups_name"]
+# Request groups_name (not groups). Kanidm's `groups` scope fills the claim with
+# UUIDs and SPNs; OpenCloud then fails role mapping ("no role in claim").
+DEFAULT_OIDC_SCOPES = ["openid", "profile", "email", "groups_name"]
+OPENCLOUD_ROLE_CLAIM = "opencloudRoles"
 
 
 def to_bool(value: Any) -> bool:
@@ -154,6 +157,17 @@ def build_opencloud_client(
         "landing_url": origin,
         "redirect_uris": [origin + path if path != "/" else origin + "/" for path in OPENCLOUD_REDIRECT_PATHS],
         "scopes": list(DEFAULT_OIDC_SCOPES),
+        "claim_maps": [
+            {
+                "claim": OPENCLOUD_ROLE_CLAIM,
+                "join": "array",
+                "mappings": [
+                    {"group": "opencloud-admin", "values": ["admin"]},
+                    {"group": "opencloud-user", "values": ["user"]},
+                    {"group": "opencloud-guest", "values": ["guest"]},
+                ],
+            }
+        ],
     }
 
 
@@ -169,12 +183,12 @@ def build_opencloud_provider(
         "account_url": f"https://{host}/",
         "domain": host,
         "client_id": client_id,
-        "client_scopes": "openid profile email groups groups_name",
-        "role_claim": "groups",
+        "client_scopes": " ".join(DEFAULT_OIDC_SCOPES),
+        "role_claim": OPENCLOUD_ROLE_CLAIM,
         "role_mapping": {
-            "admin": "opencloud-admin",
-            "user": "opencloud-user",
-            "guest": "opencloud-guest",
+            "admin": "admin",
+            "user": "user",
+            "guest": "guest",
         },
     }
 

@@ -64,6 +64,10 @@ def test_build_opencloud_client_redirects():
     assert client["public"] is True
     assert "https://cloud.test.example/web-oidc-callback" in client["redirect_uris"]
     assert "openid" in client["scopes"]
+    assert "groups_name" in client["scopes"]
+    assert "groups" not in client["scopes"]
+    assert client["claim_maps"][0]["claim"] == "opencloudRoles"
+    assert client["claim_maps"][0]["mappings"][0]["values"] == ["admin"]
 
 
 def test_kanidm_issuer_is_per_client():
@@ -134,7 +138,8 @@ def test_wire_remote_consumer_domain(tmp_path: Path):
 def test_build_opencloud_provider_urls():
     provider = build_opencloud_provider("idm.example")
     assert provider["account_url"] == "https://idm.example/"
-    assert provider["role_mapping"]["admin"] == "opencloud-admin"
+    assert provider["role_mapping"]["admin"] == "admin"
+    assert provider["role_claim"] == "opencloudRoles"
     assert provider["issuer_url"].endswith("/oauth2/openid/opencloud")
 
 
