@@ -118,6 +118,44 @@ def test_update_from_wizard_enables_and_drops_apply_kits(tmp_path: Path):
     assert data["services"]["opencloud"]["enabled"] is True
     assert data["services"]["matrix"]["enabled"] is False
     assert data["services"]["stalwart"]["enabled"] is False
+    assert "authelia" not in data["services"]
+
+
+def test_update_from_wizard_drops_stale_authelia_service(tmp_path: Path):
+    engine_yaml = tmp_path / "engine.yaml"
+    example = tmp_path / "engine.yaml.example"
+    example.write_text(yaml.safe_dump({"engine": {"network": "easydeploy-net"}, "services": {}}))
+    engine_yaml.write_text(
+        yaml.safe_dump(
+            {
+                "engine": {"network": "easydeploy-net"},
+                "services": {
+                    "authelia": {
+                        "enabled": True,
+                        "path": "../authelia-easy-deploy",
+                        "fragment": ".authelia-easy-deploy/integration/caddy.caddy",
+                    },
+                    "kanidm": {"enabled": False, "path": "../kanidm-easy-deploy"},
+                },
+            }
+        )
+    )
+    update_from_wizard(
+        enabled=["kanidm"],
+        kits=[
+            {
+                "name": "kanidm",
+                "rel_path": "../kanidm-easy-deploy",
+                "fragment": ".kanidm-easy-deploy/integration/caddy.caddy",
+            }
+        ],
+        wire=True,
+        path=engine_yaml,
+        example=example,
+    )
+    data = yaml.safe_load(engine_yaml.read_text())
+    assert "authelia" not in data["services"]
+    assert data["services"]["kanidm"]["enabled"] is True
 
 
 def _git_commit(repo: Path) -> None:

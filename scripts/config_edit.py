@@ -277,6 +277,7 @@ def update_from_wizard(
 
     by_name = {item["name"]: item for item in kits}
     enabled_set = set(enabled)
+    catalog_names = {kit["name"] for kit in KIT_CATALOG}
     for kit in KIT_CATALOG:
         name = kit["name"]
         entry = services.get(name) if isinstance(services.get(name), dict) else {}
@@ -289,6 +290,9 @@ def update_from_wizard(
             entry.setdefault("fragment", kit["fragment"])
         entry["enabled"] = name in enabled_set
         services[name] = entry
+
+    for stale in [name for name in list(services) if name not in catalog_names]:
+        services.pop(stale, None)
 
     save_yaml(path, config)
 

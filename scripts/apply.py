@@ -71,9 +71,17 @@ def validate_engine(config: dict) -> list[dict]:
         raise ValueError("services must be a mapping")
 
     enabled: list[dict] = []
+    catalog_names = {kit["name"] for kit in KIT_CATALOG}
     for name, entry in services.items():
         if not isinstance(entry, dict):
             raise ValueError(f"services.{name} must be a mapping")
+        if name not in catalog_names:
+            print(
+                f"Warning: ignoring unknown service {name!r} in engine.yaml "
+                f"(not in engine catalog; remove it or set enabled: false)",
+                file=sys.stderr,
+            )
+            continue
         if not entry.get("enabled"):
             continue
         kit_path = str(entry.get("path") or "").strip()
