@@ -35,9 +35,10 @@ _CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 MAS_PATH_PREFIX = "/auth"
 KANIDM_SSO_NAME = "Kanidm"
 DEFAULT_MATRIX_CLIENT_ID = "matrix"
-# Request groups_name (not groups). Kanidm's `groups` scope fills the claim with
-# UUIDs and SPNs; OpenCloud then fails role mapping ("no role in claim").
-DEFAULT_OIDC_SCOPES = ["openid", "profile", "email", "groups_name"]
+# OpenCloud's web client requests `groups` as well as `groups_name`. Kanidm
+# denies the whole grant if any requested scope is missing from the scope map.
+# Role assignment still uses the opencloudRoles claim map (not UUID/SPN groups).
+DEFAULT_OIDC_SCOPES = ["openid", "profile", "email", "groups", "groups_name"]
 OPENCLOUD_ROLE_CLAIM = "opencloudRoles"
 
 
@@ -235,18 +236,21 @@ def build_matrix_provider(
 def build_stalwart_client(
     mail_hostname: str,
     *,
-    client_id: str = "stalwart",
+    client_id: str = "stalwart-webui",
 ) -> dict[str, Any]:
     origin = f"https://{mail_hostname.rstrip('/')}"
     return {
         "client_id": client_id,
         "client_name": "Stalwart",
-        "public": False,
+        "public": True,
         "prefer_short_username": True,
         "landing_url": origin,
         "redirect_uris": [
+            f"{origin}/",
+            f"{origin}/login",
+            f"{origin}/account/oauth/callback",
             f"{origin}/auth/oidc/callback",
-            f"{origin}/.well-known/oauth-authorization-server",
+            f"{origin}/admin",
         ],
         "scopes": ["openid", "profile", "email"],
     }
@@ -271,6 +275,7 @@ def build_stalwart_identity(
             "username_domain": mail_domain,
             "claim_name": "name",
             "claim_groups": "groups",
+            "require_audience": client_id,
         },
         "ldap": {
             "url": "ldaps://kanidm:3636",
@@ -279,8 +284,8 @@ def build_stalwart_identity(
             "bind_authentication": True,
             "allow_invalid_certs": True,
             "use_tls": True,
-            "filter_login": "(&(objectclass=account)(|(name=?)(mail=?)))",
-            "filter_mailbox": "(&(objectclass=account)(mail=?))",
+            "filter_login": "(&(objectclass=account)(|(name=?)(mail=?)(spn=?)))",
+            "filter_mailbox": "(&(objectclass=account)(|(mail=?)(spn=?)))",
             "attr_email": "mail",
             "attr_description": "displayname",
             "attr_member_of": "memberof",
@@ -506,7 +511,7 @@ def wire_identity(
     stalwart_cfg = _consumer_cfg(consumers_cfg, "stalwart")
     stalwart_host_override = str(stalwart_cfg.get("hostname") or stalwart_cfg.get("domain") or "").strip()
     stalwart_mail_domain = str(stalwart_cfg.get("mail_domain") or "").strip()
-    stalwart_client_id = _client_id_for(stalwart, stalwart_cfg, "stalwart")
+    stalwart_client_id = _client_id_for(stalwart, stalwart_cfg, "stalwart-webui")
 
     if stalwart and not stalwart_should_skip(resolve_kit_path(stalwart, project_root), stalwart):
         kit_root = resolve_kit_path(stalwart, project_root)

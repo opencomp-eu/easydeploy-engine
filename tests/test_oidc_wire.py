@@ -64,8 +64,8 @@ def test_build_opencloud_client_redirects():
     assert client["public"] is True
     assert "https://cloud.test.example/web-oidc-callback" in client["redirect_uris"]
     assert "openid" in client["scopes"]
+    assert "groups" in client["scopes"]
     assert "groups_name" in client["scopes"]
-    assert "groups" not in client["scopes"]
     assert client["claim_maps"][0]["claim"] == "opencloudRoles"
     assert client["claim_maps"][0]["mappings"][0]["values"] == ["admin"]
 
@@ -224,7 +224,7 @@ def test_wire_stalwart_same_vps(tmp_path: Path):
         {"name": "stalwart", "path": stalwart, "fragment_rel": "x", "oidc": {}},
     ]
     notes = wire_identity({"identity": {"wire": "auto"}}, enabled, tmp_path)
-    client_path = kanidm / ".kanidm-easy-deploy" / "integration" / "oidc-clients.d" / "stalwart.yaml"
+    client_path = kanidm / ".kanidm-easy-deploy" / "integration" / "oidc-clients.d" / "stalwart-webui.yaml"
     identity_path = stalwart / ".stalwart-easy-deploy" / "integration" / "identity-provider.yaml"
     assert client_path.is_file()
     assert identity_path.is_file()
@@ -232,7 +232,10 @@ def test_wire_stalwart_same_vps(tmp_path: Path):
     assert identity["provider"] == "kanidm"
     assert identity["ldap"]["url"] == "ldaps://kanidm:3636"
     assert identity["ldap"]["base_dn"] == "dc=idm,dc=test,dc=example"
-    assert identity["oidc"]["issuer_url"].endswith("/oauth2/openid/stalwart")
+    assert identity["oidc"]["issuer_url"].endswith("/oauth2/openid/stalwart-webui")
+    client = yaml.safe_load(client_path.read_text())
+    assert client["public"] is True
+    assert client["client_id"] == "stalwart-webui"
     assert any("Wired Stalwart" in line for line in notes)
 
 
@@ -240,3 +243,5 @@ def test_build_stalwart_identity_filters():
     identity = build_stalwart_identity("idm.example.com", "example.com")
     assert identity["ldap"]["bind_dn"] == "dn=token"
     assert identity["oidc"]["username_domain"] == "example.com"
+    assert "mail=?" in identity["ldap"]["filter_login"]
+    assert "spn=?" in identity["ldap"]["filter_login"]
