@@ -444,6 +444,8 @@ def wire_identity(
         write_sidecar(clients_dir / f"{opencloud_client_id}.yaml", client)
         write_sidecar(kit_root / ".opencloud-easy-deploy" / "integration" / "oidc-provider.yaml", provider)
         notes.append(f"Wired OpenCloud ({domain}) → Kanidm ({kanidm_domain}) as client {opencloud_client_id!r}.")
+        notes.append(f"  Kanidm client definition: {clients_dir / f'{opencloud_client_id}.yaml'}")
+        notes.append(f"  OpenCloud provider definition: {kit_root / '.opencloud-easy-deploy' / 'integration' / 'oidc-provider.yaml'}")
         wired += 1
     elif opencloud_domain:
         client = build_opencloud_client(opencloud_domain, client_id=opencloud_client_id)

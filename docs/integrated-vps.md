@@ -34,10 +34,11 @@ Manual equivalent:
 
 1. Clone kits as siblings of the engine (or let the engine wizard clone them).
 2. Create `engine.yaml` and enable services.
-3. Set each kit `proxy.mode: integrate` in `deploy.yaml`.
-4. `bash apply.sh` in **Kanidm**, then **OpenCloud** / **Matrix** / **Stalwart** (integrate mode).
-5. `bash apply.sh` in **easydeploy-engine**.
-6. After changing domains or adding a service: re-apply the kit, then re-apply the engine.
+3. Configure each enabled kit's `deploy.yaml` (or `kits/<name>.yaml`).
+4. Run `bash apply.sh` in **easydeploy-engine**. It writes identity sidecars,
+   forces integrate mode, applies Kanidm first, applies consumer kits, and
+   finally reloads shared Caddy.
+5. After changing domains or adding a service, re-run the engine apply.
 
 ## Kanidm on your existing box
 
@@ -58,11 +59,12 @@ When Kanidm and OpenCloud, Matrix, or Stalwart are enabled, the engine writes **
 - Matrix MAS: `<matrix>/.matrix-easy-deploy/integration/oidc-provider.yaml`
 - Stalwart directory: `<stalwart>/.stalwart-easy-deploy/integration/identity-provider.yaml`
 
-Apply order after enabling both (handled by `bash wizard.sh`):
+Apply order after enabling both (handled by engine `wizard.sh` and `apply.sh`):
 
-1. Kit apply (fragments + stacks)
-2. Engine apply (Caddy + identity sidecars)
-3. Kanidm apply, then OpenCloud / Matrix / Stalwart apply (consume sidecars)
+1. Engine writes identity sidecars.
+2. Engine applies Kanidm, which registers OAuth2 clients.
+3. Engine applies OpenCloud / Matrix / Stalwart, which consume provider sidecars.
+4. Engine assembles and reloads shared Caddy.
 
 Kanidm OIDC issuers are per client, for example `https://idm.example.com/oauth2/openid/opencloud`. Stalwart authenticates IMAP/SMTP against Kanidm LDAP (`ldaps://kanidm:3636`) and can also use the registered OIDC client for token login.
 
