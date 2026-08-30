@@ -233,15 +233,34 @@ def test_wire_stalwart_same_vps(tmp_path: Path):
     assert identity["ldap"]["url"] == "ldaps://kanidm:3636"
     assert identity["ldap"]["base_dn"] == "dc=idm,dc=test,dc=example"
     assert identity["oidc"]["issuer_url"].endswith("/oauth2/openid/stalwart-webui")
+    assert identity["auth_directory"] == "oidc"
     client = yaml.safe_load(client_path.read_text())
     assert client["public"] is True
     assert client["client_id"] == "stalwart-webui"
     assert any("Wired Stalwart" in line for line in notes)
 
 
+def test_wire_stalwart_removes_legacy_client_sidecar(tmp_path: Path):
+    kanidm = _kit_kanidm(tmp_path)
+    stalwart = _kit_stalwart(tmp_path)
+    clients_dir = kanidm / ".kanidm-easy-deploy" / "integration" / "oidc-clients.d"
+    clients_dir.mkdir(parents=True)
+    (clients_dir / "stalwart.yaml").write_text("client_id: stalwart\n")
+    enabled = [
+        {"name": "kanidm", "path": kanidm, "fragment_rel": "x", "oidc": {}},
+        {"name": "stalwart", "path": stalwart, "fragment_rel": "x", "oidc": {}},
+    ]
+    wire_identity({"identity": {"wire": "auto"}}, enabled, tmp_path)
+    assert not (clients_dir / "stalwart.yaml").exists()
+    assert (clients_dir / "stalwart-webui.yaml").is_file()
+
+
 def test_build_stalwart_identity_filters():
     identity = build_stalwart_identity("idm.example.com", "example.com")
     assert identity["ldap"]["bind_dn"] == "dn=token"
     assert identity["oidc"]["username_domain"] == "example.com"
+    assert identity["oidc"]["client_id"] == "stalwart-webui"
+    assert identity["auth_directory"] == "oidc"
+    assert identity["oidc"]["issuer_url"].endswith("/oauth2/openid/stalwart-webui")
     assert "mail=?" in identity["ldap"]["filter_login"]
     assert "spn=?" in identity["ldap"]["filter_login"]

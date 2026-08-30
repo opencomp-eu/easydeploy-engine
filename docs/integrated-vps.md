@@ -66,7 +66,7 @@ Apply order after enabling both (handled by engine `wizard.sh` and `apply.sh`):
 3. Engine applies OpenCloud / Matrix / Stalwart, which consume provider sidecars.
 4. Engine assembles and reloads shared Caddy.
 
-Kanidm OIDC issuers are per client, for example `https://idm.example.com/oauth2/openid/opencloud`. Stalwart authenticates IMAP/SMTP against Kanidm LDAP (`ldaps://kanidm:3636`) and can also use the registered OIDC client for token login.
+Kanidm OIDC issuers are per client, for example `https://idm.example.com/oauth2/openid/opencloud`. Stalwart registers both Kanidm LDAP (IMAP password bind) and the `stalwart-webui` OIDC client (WebUI SSO).
 
 **Same VPS, no YAML client block:** kit wizards ask “Use Kanidm on this VPS?” when they find `../kanidm-easy-deploy/deploy.yaml`.
 

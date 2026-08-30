@@ -260,7 +260,7 @@ def build_stalwart_identity(
     kanidm_domain: str,
     mail_domain: str,
     *,
-    client_id: str = "stalwart",
+    client_id: str = "stalwart-webui",
     ldap_token: str = "",
 ) -> dict[str, Any]:
     host = kanidm_domain.strip().rstrip("/")
@@ -277,6 +277,7 @@ def build_stalwart_identity(
             "claim_groups": "groups",
             "require_audience": client_id,
         },
+        "auth_directory": "oidc",
         "ldap": {
             "url": "ldaps://kanidm:3636",
             "base_dn": ldap_base_dn(host),
@@ -526,6 +527,9 @@ def wire_identity(
             ldap_token=_read_ldap_token(kanidm_root),
         )
         write_sidecar(clients_dir / f"{stalwart_client_id}.yaml", client)
+        stale_client = clients_dir / "stalwart.yaml"
+        if stalwart_client_id != "stalwart" and stale_client.is_file():
+            stale_client.unlink()
         write_sidecar(kit_root / ".stalwart-easy-deploy" / "integration" / "identity-provider.yaml", identity_sidecar)
         notes.append(
             f"Wired Stalwart ({hostname}) → Kanidm LDAP + OIDC ({kanidm_domain}) as client {stalwart_client_id!r}."
