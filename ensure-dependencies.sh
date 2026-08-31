@@ -30,7 +30,7 @@ main() {
 	ensure_dependencies_installed
 	ensure_uv
 	uv sync --dev --directory "${SCRIPT_DIR}"
-	success "Ready. Next: bash wizard.sh  or  bash apply.sh"
+	success "Ready. Next: bash wizard.sh  or  bash apply.sh  or  bash update.sh"
 }
 
 main "$@"

@@ -45,7 +45,7 @@ The wizard can:
 
 The clone branch defaults to `feature/engine` (where the engine-aware kit changes live today). After those land on `main`, set `engine.kit_branch: main` in `engine.yaml`, pass `--branch main`, or answer `main` in the wizard.
 
-Re-run a kit `apply.sh`, then engine `apply.sh`, whenever a fragment or domain changes. Re-run `bash wizard.sh` to add a service.
+Re-run a kit `apply.sh`, then engine `apply.sh`, whenever a fragment or domain changes. Re-run `bash wizard.sh` to add a service. For version bumps, `bash update.sh`.
 
 Power users can skip the wizard: write `engine.yaml`, put each service’s `deploy.yaml` in `kits/`, and run `bash apply.sh`.
 
@@ -80,6 +80,8 @@ bash apply.sh
 
 Later changes: edit `kits/opencloud.yaml` (or `engine.yaml`) and run `bash apply.sh` again.
 
+**Updates:** `bash update.sh` pulls the engine and enabled kit repos, merges new `tag` / `tools_tag` pins from each kit’s `deploy.yaml.example` into your operator YAML (`kits/*.yaml` or kit `deploy.yaml`), then runs the full apply (pull images, recreate containers). Use `--skip-tags` to keep your current image pins, or `--skip-git` when not using git checkouts.
+
 `--skip-kits` only reloads Caddy / identity sidecars without touching kit stacks.
 
 If `kits/<name>.yaml` is absent, the kit’s own `deploy.yaml` is used — so you can still keep config in each repo.
@@ -92,6 +94,7 @@ A kit the engine can clone and run looks like this (Kanidm, OpenCloud, Matrix, a
 |------|------|
 | `wizard.sh` | Interactive setup; writes `deploy.yaml` |
 | `apply.sh` | Converge config and start that kit’s stack |
+| `update.sh` | Pull git repos, sync image tags, then apply everything |
 | `deploy.yaml` | Operator config (created by the wizard) |
 
 `wizard.sh` also accepts `--from-engine` (used by this wizard): set `proxy.mode: integrate` and write `deploy.yaml` without applying — the engine applies in order.
