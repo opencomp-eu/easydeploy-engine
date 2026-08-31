@@ -1,8 +1,9 @@
 # Operator-owned kit deploy.yaml files live here (optional).
 # apply.sh copies kits/<name>.yaml → <kit>/deploy.yaml and sets proxy.mode: integrate.
 #
-#   kits/authelia.yaml   →  ../authelia-easy-deploy/deploy.yaml
+#   kits/kanidm.yaml     →  ../kanidm-easy-deploy/deploy.yaml
 #   kits/opencloud.yaml  →  ../opencloud-easy-deploy/deploy.yaml
 #   kits/matrix.yaml     →  ../matrix-easy-deploy/deploy.yaml
+#   kits/stalwart.yaml   →  ../stalwart-easy-deploy/deploy.yaml
 #
 # If a file is absent, apply.sh uses the kit's existing deploy.yaml instead.

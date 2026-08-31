@@ -93,6 +93,6 @@ identity:
 | Engine removes Kanidm containers | Both kits used Compose project name `compose` (directory basename). Fixed: unique `COMPOSE_PROJECT_NAME` per kit. Re-apply Kanidm, then engine. |
 | `SSL_ERROR_INTERNAL_ERROR_ALERT` on a new domain | Caddy was not reloaded after adding a kit fragment. Run `bash apply.sh` in easydeploy-engine (reloads Caddy), or `docker exec easydeploy_caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile`. Also confirm DNS A/AAAA for that domain. |
 | Engine apply: missing fragment | Run kit `apply.sh` with `integrate` mode first |
-| :443 already in use | Stop standalone `kanidm_caddy` / `authelia_caddy` / Matrix `caddy` / OpenCloud Caddy / `stalwart_caddy` |
+| :443 already in use | Stop standalone `kanidm_caddy` / Matrix `caddy` / OpenCloud Caddy / `stalwart_caddy` |
 | 502 from Caddy | Kit container on `easydeploy-net`? `docker network inspect easydeploy-net` |
 | App login does not reach Kanidm | Confirm the issuer is the **client-specific** URL (`/oauth2/openid/<client_id>`), then re-apply Kanidm then the app kit |

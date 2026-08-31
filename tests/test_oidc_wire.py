@@ -121,6 +121,26 @@ def test_wire_skips_non_kanidm_provider(tmp_path: Path):
     assert any("skipped" in line.lower() for line in notes)
 
 
+def test_wire_skips_legacy_authelia_provider(tmp_path: Path):
+    kanidm = _kit_kanidm(tmp_path)
+    opencloud = _kit_opencloud(tmp_path)
+    (opencloud / "deploy.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "opencloud": {"domain": "cloud.test.example"},
+                "auth": {"mode": "oidc", "oidc": {"provider": "authelia"}},
+            }
+        )
+    )
+    enabled = [
+        {"name": "kanidm", "path": kanidm, "fragment_rel": "x", "oidc": {}},
+        {"name": "opencloud", "path": opencloud, "fragment_rel": "x", "oidc": {}},
+    ]
+    notes = wire_identity({}, enabled, tmp_path)
+    assert not (kanidm / ".kanidm-easy-deploy" / "integration" / "oidc-clients.d").exists()
+    assert any("skipped" in line.lower() for line in notes)
+
+
 def test_wire_remote_consumer_domain(tmp_path: Path):
     kanidm = _kit_kanidm(tmp_path)
     enabled = [{"name": "kanidm", "path": kanidm, "fragment_rel": "x", "oidc": {}}]

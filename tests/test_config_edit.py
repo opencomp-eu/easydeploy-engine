@@ -213,7 +213,7 @@ def test_clone_kit_updates_existing_checkout(tmp_path: Path):
     assert clone_kit(str(src), dest, branch="feature/engine") == "cloned"
     assert (dest / "wizard.sh").read_text() == "v1\n"
 
-    (src / "wizard.sh").write_text("v2-authelia-detect\n")
+    (src / "wizard.sh").write_text("v2-kit-detect\n")
     env = os.environ.copy()
     env.update(
         {
@@ -225,14 +225,14 @@ def test_clone_kit_updates_existing_checkout(tmp_path: Path):
     )
     subprocess.run(["git", "-C", str(src), "add", "-A"], check=True, capture_output=True)
     subprocess.run(
-        ["git", "-C", str(src), "commit", "-m", "detect authelia"],
+        ["git", "-C", str(src), "commit", "-m", "update wizard"],
         check=True,
         capture_output=True,
         env=env,
     )
 
     assert clone_kit(str(src), dest, branch="feature/engine") == "updated"
-    assert (dest / "wizard.sh").read_text() == "v2-authelia-detect\n"
+    assert (dest / "wizard.sh").read_text() == "v2-kit-detect\n"
 
 
 def test_clone_kit_rejects_non_kit_dir(tmp_path: Path):

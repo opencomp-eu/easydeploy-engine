@@ -35,7 +35,6 @@ DEFAULT_NETWORK = "easydeploy-net"
 
 KNOWN_STANDALONE_CADDY_CONTAINERS = (
     "kanidm_caddy",
-    "authelia_caddy",
     "opencloud_caddy",
     "stalwart_caddy",
     "caddy",

@@ -37,9 +37,15 @@ KANIDM_SSO_NAME = "Kanidm"
 DEFAULT_MATRIX_CLIENT_ID = "matrix"
 # OpenCloud's web client requests `groups` as well as `groups_name`. Kanidm
 # denies the whole grant if any requested scope is missing from the scope map.
-# Role assignment still uses the opencloudRoles claim map (not UUID/SPN groups).
 DEFAULT_OIDC_SCOPES = ["openid", "profile", "email", "groups", "groups_name"]
 OPENCLOUD_ROLE_CLAIM = "opencloudRoles"
+STALWART_LDAP_FILTER_LOGIN = (
+    "(&(|(objectclass=account)(objectclass=person))(|(name=?)(uid=?)(mail=?)(spn=?)))"
+)
+STALWART_LDAP_FILTER_MAILBOX = (
+    "(&(|(objectclass=account)(objectclass=person))(|(mail=?)(spn=?)))"
+)
+_LOCAL_IDPS = frozenset({"kanidm"})
 
 
 def to_bool(value: Any) -> bool:
@@ -316,8 +322,8 @@ def build_stalwart_identity(
             "bind_authentication": True,
             "allow_invalid_certs": True,
             "use_tls": True,
-            "filter_login": "(&(|(objectclass=account)(objectclass=person))(|(name=?)(uid=?)(mail=?)(spn=?)))",
-            "filter_mailbox": "(&(|(objectclass=account)(objectclass=person))(|(mail=?)(spn=?)))",
+            "filter_login": STALWART_LDAP_FILTER_LOGIN,
+            "filter_mailbox": STALWART_LDAP_FILTER_MAILBOX,
             "attr_email": "mail",
             "attr_description": "displayname",
             "attr_member_of": "memberof",
@@ -387,13 +393,25 @@ def read_webmail_domain(kit_root: Path) -> str:
     return domain
 
 
+def _deploy_mapping(kit_root: Path, *keys: str) -> dict:
+    deploy = kit_root / "deploy.yaml"
+    if not deploy.is_file():
+        return {}
+    data: Any = load_yaml(deploy)
+    for key in keys:
+        if not isinstance(data, dict):
+            return {}
+        data = data.get(key) or {}
+    return data if isinstance(data, dict) else {}
+
+
 def _is_kanidm_sso_provider(provider: Any) -> bool:
     if not isinstance(provider, dict):
         return False
     name = str(provider.get("name") or "").strip().lower()
     client_id = str(provider.get("client_id") or "").strip().lower()
     issuer = str(provider.get("issuer") or "").strip().lower()
-    if name in {"kanidm", "authelia"}:
+    if name in _LOCAL_IDPS:
         return True
     if client_id == DEFAULT_MATRIX_CLIENT_ID or client_id.startswith("matrix-"):
         return True
@@ -403,33 +421,25 @@ def _is_kanidm_sso_provider(provider: Any) -> bool:
 def consumer_should_skip(kit_root: Path, service_entry: dict) -> bool:
     if managed_is_false(service_entry.get("oidc") if isinstance(service_entry.get("oidc"), dict) else {}):
         return True
-    deploy = kit_root / "deploy.yaml"
-    if not deploy.is_file():
-        return False
-    oidc = ((load_yaml(deploy).get("auth") or {}).get("oidc") or {})
+    oidc = _deploy_mapping(kit_root, "auth", "oidc")
     if managed_is_false(oidc):
         return True
     provider = str(oidc.get("provider") or "").strip().lower()
-    return bool(provider) and provider not in {"kanidm", "authelia"}
+    return bool(provider) and provider not in _LOCAL_IDPS
 
 
 def matrix_should_skip(kit_root: Path, service_entry: dict) -> bool:
     if managed_is_false(service_entry.get("oidc") if isinstance(service_entry.get("oidc"), dict) else {}):
         return True
-    deploy = kit_root / "deploy.yaml"
-    if not deploy.is_file():
-        return False
-    sso = ((load_yaml(deploy).get("features") or {}).get("sso") or {})
-    if not isinstance(sso, dict):
-        return False
+    sso = _deploy_mapping(kit_root, "features", "sso")
     if managed_is_false(sso):
         return True
     provider = str(sso.get("provider") or "").strip().lower()
-    if provider and provider not in {"kanidm", "authelia"}:
+    if provider and provider not in _LOCAL_IDPS:
         return True
     providers = sso.get("providers") if isinstance(sso.get("providers"), list) else []
     if providers and not any(_is_kanidm_sso_provider(item) for item in providers):
-        if provider not in {"kanidm", "authelia"}:
+        if provider not in _LOCAL_IDPS:
             return True
     return False
 
@@ -437,12 +447,7 @@ def matrix_should_skip(kit_root: Path, service_entry: dict) -> bool:
 def stalwart_should_skip(kit_root: Path, service_entry: dict) -> bool:
     if managed_is_false(service_entry.get("identity") if isinstance(service_entry.get("identity"), dict) else {}):
         return True
-    deploy = kit_root / "deploy.yaml"
-    if not deploy.is_file():
-        return False
-    identity = load_yaml(deploy).get("identity") or {}
-    if not isinstance(identity, dict):
-        return False
+    identity = _deploy_mapping(kit_root, "identity")
     if managed_is_false(identity):
         return True
     provider = str(identity.get("provider") or "").strip().lower()
