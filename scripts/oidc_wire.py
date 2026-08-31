@@ -71,10 +71,10 @@ def load_yaml(path: Path) -> dict:
     return data
 
 
-def write_sidecar(path: Path, data: dict) -> None:
+def write_sidecar(path: Path, data: dict, *, header: str = SIDECAR_HEADER) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     body = yaml.safe_dump(data, default_flow_style=False, sort_keys=False)
-    path.write_text(SIDECAR_HEADER + body)
+    path.write_text(header + body)
 
 
 def resolve_kit_path(service: dict, project_root: Path) -> Path:

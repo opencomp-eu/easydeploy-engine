@@ -11,6 +11,7 @@ from pathlib import Path
 
 import yaml
 
+from scripts.embed_wire import wire_embed
 from scripts.oidc_wire import resolve_kit_path, to_bool, wire_identity
 from scripts.config_edit import (
     KIT_CATALOG,
@@ -337,6 +338,10 @@ def apply_engine(
 
     oidc_notes = wire_identity(config, enabled, PROJECT_ROOT)
     for line in oidc_notes:
+        print(line)
+
+    embed_notes = wire_embed(config, enabled, PROJECT_ROOT)
+    for line in embed_notes:
         print(line)
 
     if should_apply_kits:

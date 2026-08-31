@@ -15,6 +15,11 @@ engine:
 # or identity.consumers.<app>.domain for a remote client.
 identity:
   wire: auto
+
+# Extra origins allowed to iframe OpenCloud / Element (in addition to Bulwark).
+# embed:
+#   frame_ancestors:
+#     - https://intranet.example.com
   # consumers:
   #   opencloud:
   #     domain: cloud.other-vps.example   # Kanidm-only host, remote OpenCloud
