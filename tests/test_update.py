@@ -90,3 +90,10 @@ def test_sync_image_tags_enabled_services(tmp_path: Path):
     notes = sync_image_tags([_service("opencloud", kit)], tmp_path)
     assert len(notes) == 1
     assert "7.5.0" in notes[0]
+
+
+def test_update_module_imports():
+    import scripts.update as update_module
+
+    assert callable(update_module.update_stack)
+    assert callable(update_module.pull_engine_repo)

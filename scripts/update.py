@@ -9,12 +9,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from scripts.apply import apply_engine, load_engine, validate_engine
-from scripts.config_edit import ensure_enabled_kits
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "easydeploy-lib" / "python"))
 
+from scripts.apply import apply_engine, ensure_enabled_kits, load_engine, validate_engine  # noqa: E402
 from scripts.version_sync import sync_image_tags  # noqa: E402
 
 
