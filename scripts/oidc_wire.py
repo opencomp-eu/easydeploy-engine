@@ -205,17 +205,23 @@ def build_matrix_client(
     kanidm_domain: str,
     *,
     client_id: str = DEFAULT_MATRIX_CLIENT_ID,
+    element_domain: str = "",
 ) -> dict[str, Any]:
     origin = f"https://{matrix_domain.rstrip('/')}"
-    return {
+    app_host = str(element_domain or matrix_domain).strip().rstrip("/")
+    app = f"https://{app_host}"
+    client = {
         "client_id": client_id,
         "client_name": "Matrix",
         "public": False,
         "prefer_short_username": True,
-        "landing_url": origin,
+        "landing_url": app,
         "redirect_uris": [matrix_kanidm_redirect_uri(matrix_domain, kanidm_domain, client_id)],
         "scopes": ["openid", "profile", "email"],
     }
+    if str(element_domain or "").strip():
+        client["image"] = f"{app}/vector-icons/144.png"
+    return client
 
 
 def build_matrix_provider(
@@ -363,6 +369,19 @@ def read_matrix_domain(kit_root: Path) -> str:
     if not domain or domain == "matrix.example.com":
         raise ValueError(f"{deploy}: matrix.domain is not set")
     return domain
+
+
+def read_matrix_element_domain(kit_root: Path, matrix_domain: str) -> str:
+    """Public Element host for Kanidm's app tile (may differ from the homeserver)."""
+    deploy = kit_root / "deploy.yaml"
+    if not deploy.is_file():
+        return ""
+    element = ((load_yaml(deploy).get("features") or {}).get("element") or {})
+    if not isinstance(element, dict):
+        return ""
+    if "enabled" in element and not to_bool(element.get("enabled")):
+        return ""
+    return str(element.get("domain") or matrix_domain).strip()
 
 
 def read_stalwart_domains(kit_root: Path) -> tuple[str, str]:
@@ -538,7 +557,12 @@ def wire_identity(
         matrix_sidecar = kit_root / ".matrix-easy-deploy" / "integration" / "oidc-provider.yaml"
         secret_store = kanidm_root / ".kanidm-easy-deploy" / "integration" / "oidc-secrets.d" / f"{matrix_client_id}.yaml"
         client_secret = load_existing_matrix_secret(matrix_sidecar, secret_store)
-        client = build_matrix_client(domain, kanidm_domain, client_id=matrix_client_id)
+        element_domain = str(matrix_cfg.get("element_domain") or "").strip() or read_matrix_element_domain(
+            kit_root, domain
+        )
+        client = build_matrix_client(
+            domain, kanidm_domain, client_id=matrix_client_id, element_domain=element_domain
+        )
         provider = build_matrix_provider(
             kanidm_domain, client_id=matrix_client_id, client_secret=client_secret
         )
@@ -547,7 +571,13 @@ def wire_identity(
         notes.append(f"Wired Matrix ({domain}) → Kanidm ({kanidm_domain}) as client {matrix_client_id!r}.")
         wired += 1
     elif matrix_domain_override:
-        client = build_matrix_client(matrix_domain_override, kanidm_domain, client_id=matrix_client_id)
+        element_domain = str(matrix_cfg.get("element_domain") or "").strip()
+        client = build_matrix_client(
+            matrix_domain_override,
+            kanidm_domain,
+            client_id=matrix_client_id,
+            element_domain=element_domain,
+        )
         write_sidecar(clients_dir / f"{matrix_client_id}.yaml", client)
         notes.append(
             f"Wired remote Matrix ({matrix_domain_override}) client {matrix_client_id!r} into Kanidm "

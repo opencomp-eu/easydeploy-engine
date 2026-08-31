@@ -188,6 +188,8 @@ def test_wire_matrix_same_vps(tmp_path: Path):
     assert provider["issuer"] == "https://idm.test.example/oauth2/openid/matrix"
     expected_redirect = matrix_kanidm_redirect_uri("matrix.test.example", "idm.test.example")
     assert client["redirect_uris"] == [expected_redirect]
+    assert client["landing_url"] == "https://matrix.test.example"
+    assert client["image"] == "https://matrix.test.example/vector-icons/144.png"
     assert provider["id"] == expected_redirect.rsplit("/", 1)[-1]
     assert any("Wired Matrix" in line for line in notes)
 
@@ -240,6 +242,17 @@ def test_build_matrix_client_is_confidential():
     client = build_matrix_client("matrix.example", "idm.example")
     assert client["public"] is False
     assert "openid" in client["scopes"]
+    assert client["landing_url"] == "https://matrix.example"
+    assert "image" not in client
+
+
+def test_build_matrix_client_points_app_tile_at_element():
+    client = build_matrix_client(
+        "matrix.example", "idm.example", element_domain="chat.example"
+    )
+    assert client["landing_url"] == "https://chat.example"
+    assert client["image"] == "https://chat.example/vector-icons/144.png"
+    assert client["redirect_uris"][0].startswith("https://matrix.example/auth/")
 
 
 def test_wire_stalwart_same_vps(tmp_path: Path):
