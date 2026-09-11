@@ -1,0 +1,17 @@
+service: engine
+archive_prefix: engine
+timer_name: easydeploy-engine-backup
+state_dir: .easydeploy-engine
+secrets_file: .easydeploy-engine/secrets.yaml
+hooks:
+  stop: scripts/backup_stop.sh
+  start: scripts/backup_start.sh
+  apply: scripts/backup_apply.sh
+persistent_paths:
+  - path: engine.yaml
+  - path: .easydeploy-engine
+docker_volumes:
+  - easydeploy_caddy_data
+  - easydeploy_caddy_config
+databases: []
+legacy_persistent_paths: []

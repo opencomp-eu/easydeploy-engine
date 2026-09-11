@@ -8,6 +8,25 @@ engine:
   # feature/engine until those changes land on main.
   kit_branch: feature/engine
 
+# Engine state and Caddy certificates can be stored in a local or SFTP Borg
+# repository.  The enabled kits keep their own backup repositories/settings.
+backup:
+  enabled: false
+  repository:
+    type: local
+    path: /var/backups/easydeploy-engine
+    # SFTP repositories also require host, user, and ssh_key_path.
+    encryption: repokey
+  schedule:
+    enabled: false
+    calendar: "*-*-* 03:00:00"
+    persistent: true
+  retention:
+    keep_daily: 7
+    keep_weekly: 4
+    keep_monthly: 6
+    keep_yearly: 0
+
 # Same-VPS Kanidm ↔ OpenCloud / Matrix / Stalwart. Sidecars are written into each
 # kit's .*/integration/ directory (operator deploy.yaml is not rewritten).
 # Split VPS / external IdP: set wire: false, or auth.oidc.managed: false on OpenCloud,

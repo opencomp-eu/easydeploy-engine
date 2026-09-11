@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import secrets
 import subprocess
 import sys
 from pathlib import Path
@@ -416,6 +417,52 @@ def reload_caddy() -> None:
     run_compose("up", "-d", "--force-recreate", "--wait", "caddy")
 
 
+def ensure_backup_secret(config: dict) -> None:
+    """Create the engine Borg passphrase once backup is enabled."""
+    backup = config.get("backup") or {}
+    if not isinstance(backup, dict) or not backup.get("enabled"):
+        return
+    state_secrets = STATE_DIR / "secrets.yaml"
+    data: dict = {}
+    if state_secrets.is_file():
+        loaded = yaml.safe_load(state_secrets.read_text()) or {}
+        if not isinstance(loaded, dict):
+            raise ValueError(f"{state_secrets}: root must be a mapping")
+        data = loaded
+    if not str(data.get("BORG_PASSPHRASE") or "").strip():
+        data["BORG_PASSPHRASE"] = secrets.token_hex(32)
+        state_secrets.parent.mkdir(parents=True, exist_ok=True)
+        state_secrets.write_text(yaml.safe_dump(data, default_flow_style=False, sort_keys=False))
+        state_secrets.chmod(0o600)
+        print(f"Generated Borg passphrase in {state_secrets}")
+
+
+def reconcile_backup_schedule() -> None:
+    """Reconcile the engine systemd timer from engine.yaml."""
+    schedule_script = PROJECT_ROOT / "easydeploy-lib" / "python" / "backup_schedule.py"
+    sys.path.insert(0, str(PROJECT_ROOT / "easydeploy-lib" / "python"))
+    try:
+        from backup_plan import load_plan
+
+        timer_name = load_plan(PROJECT_ROOT)["timer_name"]
+    finally:
+        sys.path.pop(0)
+    subprocess.run(
+        [
+            sys.executable,
+            str(schedule_script),
+            "--project-root",
+            str(PROJECT_ROOT),
+            "--deploy-yaml",
+            str(ENGINE_PATH),
+            "--unit-name",
+            timer_name,
+        ],
+        check=True,
+        text=True,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Apply easydeploy-engine configuration")
     parser.add_argument("--skip-runtime", action="store_true")
@@ -437,6 +484,8 @@ def main() -> None:
     )
     args = parser.parse_args()
     try:
+        config = load_engine()
+        ensure_backup_secret(config)
         apply_engine(
             skip_runtime=args.skip_runtime,
             skip_pull=args.skip_pull,
@@ -444,6 +493,7 @@ def main() -> None:
             skip_kits=args.skip_kits,
             sync_kits=args.sync_kits,
         )
+        reconcile_backup_schedule()
     except (FileNotFoundError, ValueError, RuntimeError, PermissionError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

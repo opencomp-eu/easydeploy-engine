@@ -40,6 +40,25 @@ Manual equivalent:
    finally reloads shared Caddy.
 5. After changing domains or adding a service, re-run the engine apply.
 
+## Backups and restore
+
+Enable the `backup:` block in `engine.yaml` (see
+`engine.yaml.example`) before creating Borg backups. The engine backup contains
+`engine.yaml`, `.easydeploy-engine`, and the named Caddy data/config volumes;
+each enabled kit is backed up using its own repository and plan.
+
+```bash
+bash backup.sh --cold
+bash backup.sh --export /var/backups/portable
+bash restore.sh --latest --yes       # engine only
+bash restore-all.sh --latest --yes   # engine followed by kits
+```
+
+Portable exports are named `<service>-backup-<UTC timestamp>.tar.gz` (or
+`.tar.gz.age` with `--encrypt`). On a fresh host, run
+`bootstrap-from-backup.sh <engine-archive> --yes`; to restore a complete
+export directory, use `restore-all.sh --file <directory> --yes`.
+
 ## Kanidm on your existing box
 
 If Kanidm already runs in **standalone** mode with `kanidm_caddy`, `bash wizard.sh` in the engine will switch it to integrate and start shared Caddy. Manual equivalent:

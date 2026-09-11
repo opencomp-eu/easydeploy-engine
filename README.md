@@ -86,6 +86,28 @@ Later changes: edit `kits/opencloud.yaml` (or `engine.yaml`) and run `bash apply
 
 If `kits/<name>.yaml` is absent, the kit’s own `deploy.yaml` is used — so you can still keep config in each repo.
 
+## Backups
+
+Copy the backup block from `engine.yaml.example` into `engine.yaml` and set
+`backup.enabled: true`. The engine plan stores `engine.yaml`, `.easydeploy-engine`,
+and the Caddy Docker volumes in Borg. Each enabled kit remains responsible for
+its own data and repository.
+
+```bash
+bash backup.sh                         # engine, then enabled kits
+bash backup.sh --list
+bash backup.sh --export /var/backups/portable --encrypt
+bash backup.sh --schedule               # engine and kit systemd timers
+bash restore.sh --latest --yes           # engine only
+bash restore-all.sh --latest --yes       # engine, then all enabled kits
+bash bootstrap-from-backup.sh /mnt/backup/engine-backup-2026-01-01T03:00:00.tar.gz --yes
+```
+
+`--export DIR` writes one portable archive per service into `DIR`; use
+`restore-all.sh --file DIR --yes` to restore that set on a fresh host. Use
+`--cold` for a consistent Caddy volume snapshot when the engine is serving
+traffic.
+
 ## Kit contract
 
 A kit the engine can clone and run looks like this (Kanidm, OpenCloud, Matrix, and Stalwart already do):
