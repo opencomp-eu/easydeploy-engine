@@ -8,6 +8,7 @@ import os
 import secrets
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
@@ -32,6 +33,13 @@ from scripts.progress import (
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "easydeploy-lib" / "python"))
 import hostfs  # noqa: E402
+from update_lock import (  # noqa: E402
+    NOTHING_TO_UPDATE,
+    UpdateSpec,
+    output_reports_noop,
+    record_update_lock,
+    should_skip_update,
+)
 
 COMPOSE_DIR = PROJECT_ROOT / "compose"
 COMPOSE_PROJECT_NAME = "easydeploy-engine"
@@ -48,6 +56,34 @@ KNOWN_STANDALONE_CADDY_CONTAINERS = (
     "stalwart_caddy",
     "caddy",
 )
+
+
+@dataclass(frozen=True)
+class KitRunResult:
+    name: str
+    status: str
+
+
+@dataclass(frozen=True)
+class ApplyResult:
+    kits: tuple[KitRunResult, ...]
+    caddy: str
+
+    @property
+    def all_noop(self) -> bool:
+        if any(item.status != "nothing to update" for item in self.kits):
+            return False
+        return self.caddy in {"nothing to update", "skipped"}
+
+
+def engine_update_spec() -> UpdateSpec:
+    return UpdateSpec(
+        project_root=PROJECT_ROOT,
+        state_dir=STATE_DIR,
+        config_paths=(ENGINE_PATH, CADDYFILE),
+        compose_projects=(COMPOSE_PROJECT_NAME,),
+        extra_containers=("easydeploy_caddy",),
+    )
 
 
 def load_yaml(path: Path) -> dict:
@@ -325,45 +361,77 @@ def ensure_enabled_kits(
     return results
 
 
-def run_kit_applies(enabled: list[dict], *, verbose: bool = True) -> None:
-    """Re-apply kits so they merge identity sidecars. Kanidm first, then others."""
+def run_kit_scripts(
+    enabled: list[dict],
+    *,
+    script_name: str = "apply.sh",
+    extra_args: list[str] | None = None,
+    verbose: bool = True,
+    report: bool = False,
+) -> list[KitRunResult]:
+    """Run a kit script (apply.sh or update.sh). Kanidm first, then others."""
+    extra_args = list(extra_args or [])
     order = sorted(enabled, key=lambda item: (0 if item["name"] == "kanidm" else 1, item["name"]))
     log_dir = STATE_DIR / "logs"
-    if not verbose:
-        print("Applying")
+    results: list[KitRunResult] = []
     for service in order:
         kit_root = resolve_kit_path(service, PROJECT_ROOT)
-        apply_sh = kit_root / "apply.sh"
-        if not apply_sh.is_file():
-            print(f"Skipping kit apply for {service['name']}: {apply_sh} not found", file=sys.stderr)
+        script = kit_root / script_name
+        if not script.is_file():
+            print(f"Skipping kit {script_name} for {service['name']}: {script} not found", file=sys.stderr)
+            results.append(KitRunResult(service["name"], "skipped"))
             continue
         name = service["name"]
         if verbose:
-            print(f"Applying kit {name} ({kit_root})…")
-        else:
+            print(f"Running {script_name} for kit {name} ({kit_root})…")
+        elif report:
             print(f"  {name:<{NAME_WIDTH}} …", end="", flush=True)
         result = subprocess.run(
-            ["bash", str(apply_sh)],
+            ["bash", str(script), *extra_args],
             cwd=kit_root,
-            capture_output=not verbose,
+            capture_output=True,
             text=True,
             env=kit_child_env(hostfs.isolated_child_env(), verbose=verbose),
         )
+        stdout = result.stdout or ""
+        stderr = result.stderr or ""
+        if verbose:
+            if stdout:
+                print(stdout, end="" if stdout.endswith("\n") else "\n")
+            if stderr:
+                print(stderr, end="" if stderr.endswith("\n") else "\n", file=sys.stderr)
         if result.returncode == 0:
-            if not verbose:
-                print(" ok")
+            status = "nothing to update" if output_reports_noop(stdout) else "ok"
+            if report:
+                print(f" {status}")
+            results.append(KitRunResult(name, status))
             continue
         if verbose:
             raise UpdateFailed(kit_apply_failure_message(name, "", verbose=True))
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / f"update-{name}.log"
         log_path.write_text(combined_output(result))
-        print(" failed")
+        if report:
+            print(" failed")
         raise UpdateFailed(
             kit_apply_failure_message(
                 name, combined_output(result), log_path=log_path, verbose=False
             )
         )
+    return results
+
+
+def run_kit_applies(enabled: list[dict], *, verbose: bool = True) -> list[KitRunResult]:
+    """Re-apply kits so they merge identity sidecars. Kanidm first, then others."""
+    if not verbose:
+        print("Applying")
+    return run_kit_scripts(
+        enabled,
+        script_name="apply.sh",
+        extra_args=[],
+        verbose=verbose,
+        report=not verbose,
+    )
 
 
 def apply_engine(
@@ -374,7 +442,10 @@ def apply_engine(
     skip_kits: bool = False,
     sync_kits: bool = False,
     verbose: bool = True,
-) -> None:
+    kit_script: str = "apply.sh",
+    kit_args: list[str] | None = None,
+    force: bool = False,
+) -> ApplyResult:
     config = load_engine()
     enabled = validate_engine(config)
 
@@ -394,8 +465,15 @@ def apply_engine(
         for line in embed_notes:
             print(line)
 
+    kit_results: list[KitRunResult] = []
     if should_apply_kits:
-        run_kit_applies(enabled, verbose=verbose)
+        kit_results = run_kit_scripts(
+            enabled,
+            script_name=kit_script,
+            extra_args=list(kit_args or []),
+            verbose=verbose,
+            report=False,
+        )
 
     fragments = collect_fragments(enabled)
 
@@ -413,7 +491,13 @@ def apply_engine(
             print(f"Caddy compose overlay: {overlay}")
 
     if skip_runtime:
-        return
+        return ApplyResult(kits=tuple(kit_results), caddy="skipped")
+
+    spec = engine_update_spec()
+    if not force and should_skip_update(spec, skip_pull=skip_pull, verbose=verbose):
+        if verbose:
+            print(NOTHING_TO_UPDATE)
+        return ApplyResult(kits=tuple(kit_results), caddy="nothing to update")
 
     warn_standalone_caddy_conflicts()
     network = str((config.get("engine") or {}).get("network") or DEFAULT_NETWORK)
@@ -421,38 +505,34 @@ def apply_engine(
     if overlay is not None:
         ensure_docker_network("caddy_net")
 
-    if not verbose:
-        print(f"  {'caddy':<{NAME_WIDTH}} …", end="", flush=True)
+    if verbose:
+        if not skip_pull:
+            print("Pulling Caddy image…")
+        print("Starting shared Caddy…")
     try:
         if not skip_pull:
-            if verbose:
-                print("Pulling Caddy image…")
             run_compose("pull", verbose=verbose)
-        if verbose:
-            print("Starting shared Caddy…")
         run_compose("up", "-d", "--wait", "--remove-orphans", verbose=verbose)
         reload_caddy(verbose=verbose)
     except Exception as exc:
         if not verbose:
-            print(" failed")
             raise UpdateFailed(
                 "caddy failed to update.\n"
                 f"{exc}\n\n"
                 "Re-run with more detail: bash update.sh --verbose"
             ) from exc
         raise
-    if not verbose:
-        print(" ok")
-        return
-
-    print()
-    print("=== Easy Deploy Engine summary ===")
-    print(f"Network:   {network}")
-    print("Caddy:     easydeploy_caddy (ports 80/443)")
-    print(f"Caddyfile: {CADDYFILE}")
-    for name, path, _ in fragments:
-        print(f"  - {name}: {path}")
-    print()
+    record_update_lock(spec)
+    if verbose:
+        print()
+        print("=== Easy Deploy Engine summary ===")
+        print(f"Network:   {network}")
+        print("Caddy:     easydeploy_caddy (ports 80/443)")
+        print(f"Caddyfile: {CADDYFILE}")
+        for name, path, _ in fragments:
+            print(f"  - {name}: {path}")
+        print()
+    return ApplyResult(kits=tuple(kit_results), caddy="ok")
 
 
 def reload_caddy(*, verbose: bool = True) -> None:

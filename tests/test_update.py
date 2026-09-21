@@ -99,8 +99,7 @@ def test_update_module_imports():
     assert callable(update_module.pull_engine_repo)
 
 
-def test_quiet_update_stack_prints_summary(tmp_path: Path, monkeypatch, capsys):
-    import scripts.update as update_module
+def _quiet_update_mocks(update_module, monkeypatch, tmp_path, *, apply_result):
     from scripts.progress import GitSync
 
     monkeypatch.setattr(update_module, "PROJECT_ROOT", tmp_path)
@@ -128,15 +127,34 @@ def test_quiet_update_stack_prints_summary(tmp_path: Path, monkeypatch, capsys):
     )
     monkeypatch.setattr(update_module, "sync_image_tags", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(update_module, "snapshot_image_ids", lambda: {"caddy:2": "id1"})
-    monkeypatch.setattr(update_module, "apply_engine", lambda **_kwargs: None)
+    monkeypatch.setattr(update_module, "apply_engine", lambda **_kwargs: apply_result)
+
+
+def test_quiet_update_stack_prints_summary(tmp_path: Path, monkeypatch, capsys):
+    import scripts.update as update_module
+    from scripts.apply import ApplyResult, KitRunResult
+
+    seen: dict = {}
+
+    def fake_apply(**kwargs):
+        seen.update(kwargs)
+        return ApplyResult(kits=(KitRunResult("kanidm", "ok"),), caddy="ok")
+
+    _quiet_update_mocks(update_module, monkeypatch, tmp_path, apply_result=None)
+    monkeypatch.setattr(update_module, "apply_engine", fake_apply)
 
     update_module.update_stack(verbose=False)
     out = capsys.readouterr().out
+    assert seen["kit_script"] == "update.sh"
+    assert "--skip-git" in seen["kit_args"]
     assert "Updating Easy Deploy" in out
     assert "Git" in out
     assert "already up to date" in out
     assert "Image pins" in out
     assert "unchanged" in out
+    assert "Applying" in out
+    assert "kanidm" in out
+    assert "caddy" in out
     assert "Docker" in out
     assert "all images already up to date" in out
     assert "Update complete." in out
@@ -144,8 +162,47 @@ def test_quiet_update_stack_prints_summary(tmp_path: Path, monkeypatch, capsys):
     assert "=== Easy Deploy Engine summary ===" not in out
 
 
+def test_quiet_update_nothing_to_update(tmp_path: Path, monkeypatch, capsys):
+    import scripts.update as update_module
+    from scripts.apply import ApplyResult, KitRunResult
+    from update_lock import NOTHING_TO_UPDATE
+
+    result = ApplyResult(
+        kits=(KitRunResult("kanidm", "nothing to update"),),
+        caddy="nothing to update",
+    )
+    _quiet_update_mocks(update_module, monkeypatch, tmp_path, apply_result=result)
+
+    update_module.update_stack(verbose=False)
+    out = capsys.readouterr().out.strip()
+    assert out == NOTHING_TO_UPDATE
+    assert "Updating Easy Deploy" not in out
+    assert "Update complete." not in out
+
+
+def test_update_stack_passes_force_and_skip_pull(tmp_path: Path, monkeypatch):
+    import scripts.update as update_module
+    from scripts.apply import ApplyResult, KitRunResult
+
+    seen: dict = {}
+
+    def fake_apply(**kwargs):
+        seen.update(kwargs)
+        return ApplyResult(kits=(KitRunResult("kanidm", "ok"),), caddy="ok")
+
+    _quiet_update_mocks(update_module, monkeypatch, tmp_path, apply_result=None)
+    monkeypatch.setattr(update_module, "apply_engine", fake_apply)
+
+    update_module.update_stack(verbose=False, force=True, skip_pull=True)
+    assert seen["force"] is True
+    assert "--force" in seen["kit_args"]
+    assert "--skip-pull" in seen["kit_args"]
+    assert "--skip-git" in seen["kit_args"]
+
+
 def test_quiet_update_reports_docker_image_changes(monkeypatch, capsys):
     import scripts.update as update_module
+    from scripts.apply import ApplyResult, KitRunResult
     from scripts.progress import GitSync
 
     images = [{"caddy:2": "old"}, {"caddy:2": "new"}]
@@ -160,7 +217,11 @@ def test_quiet_update_reports_docker_image_changes(monkeypatch, capsys):
     monkeypatch.setattr(update_module, "sync_kit_repos", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(update_module, "sync_image_tags", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(update_module, "snapshot_image_ids", lambda: images.pop(0))
-    monkeypatch.setattr(update_module, "apply_engine", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        update_module,
+        "apply_engine",
+        lambda **_kwargs: ApplyResult(kits=(), caddy="ok"),
+    )
 
     update_module.update_stack(verbose=False, skip_git=True, skip_tags=True)
     out = capsys.readouterr().out

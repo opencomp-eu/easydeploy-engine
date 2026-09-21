@@ -177,3 +177,50 @@ def test_run_kit_applies_quiet_failure_writes_log(tmp_path, monkeypatch, capsys)
     assert log_path.is_file()
     assert "euro-office failed" in log_path.read_text()
     assert "bash update.sh --verbose" in str(raised.value)
+
+
+def test_run_kit_scripts_uses_update_sh_and_detects_noop(tmp_path, monkeypatch):
+    import subprocess
+
+    import scripts.apply as engine_apply
+
+    kit = tmp_path / "kanidm-easy-deploy"
+    kit.mkdir()
+    (kit / "update.sh").write_text("#!/bin/bash\n")
+    captured: dict = {}
+
+    def fake_run(*args, **kwargs):
+        captured["cmd"] = list(args[0])
+        return subprocess.CompletedProcess(args[0], 0, stdout="Nothing to update\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(engine_apply, "PROJECT_ROOT", tmp_path)
+
+    results = engine_apply.run_kit_scripts(
+        [{"name": "kanidm", "path": str(kit)}],
+        script_name="update.sh",
+        extra_args=["--skip-git"],
+        verbose=False,
+    )
+    assert captured["cmd"][:3] == ["bash", str(kit / "update.sh"), "--skip-git"]
+    assert results[0].status == "nothing to update"
+
+
+def test_apply_result_all_noop():
+    from scripts.apply import ApplyResult, KitRunResult
+
+    noop = ApplyResult(
+        kits=(KitRunResult("kanidm", "nothing to update"),),
+        caddy="nothing to update",
+    )
+    assert noop.all_noop
+    mixed = ApplyResult(kits=(KitRunResult("kanidm", "ok"),), caddy="nothing to update")
+    assert not mixed.all_noop
+
+
+def test_engine_update_spec_lock_path():
+    from scripts.apply import STATE_DIR, engine_update_spec
+
+    spec = engine_update_spec()
+    assert spec.lock_path == STATE_DIR / "update.lock"
+    assert spec.compose_projects == ("easydeploy-engine",)

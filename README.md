@@ -80,7 +80,7 @@ bash apply.sh
 
 Later changes: edit `kits/opencloud.yaml` (or `engine.yaml`) and run `bash apply.sh` again.
 
-**Updates:** `bash update.sh` pulls the engine and enabled kit repos, merges new `tag` / `tools_tag` pins from each kit’s `deploy.yaml.example` into your operator YAML (`kits/*.yaml` or kit `deploy.yaml`), then runs the full apply (pull images, recreate containers). Default output is a short summary (git, image pins, apply result, Docker). Use `--verbose` for the full kit/Compose log, `--skip-tags` to keep your current image pins, or `--skip-git` when not using git checkouts.
+**Updates:** `bash update.sh` pulls the engine and enabled kit repos, merges new `tag` / `tools_tag` pins from each kit’s `deploy.yaml.example` into your operator YAML (`kits/*.yaml` or kit `deploy.yaml`), then runs each kit’s `update.sh` (and shared Caddy). Each repo keeps `<state_dir>/update.lock` (git SHA, `deploy.yaml` / identity sidecars, image IDs). If nothing changed, the engine prints `Nothing to update` and does not restart containers. Default output is a short summary (git, image pins, apply result, Docker). Use `--verbose` for the full kit/Compose log, `--force` to ignore locks, `--skip-tags` to keep your current image pins, or `--skip-git` when not using git checkouts.
 
 `--skip-kits` only reloads Caddy / identity sidecars without touching kit stacks.
 
@@ -116,7 +116,7 @@ A kit the engine can clone and run looks like this (Kanidm, OpenCloud, Matrix, a
 |------|------|
 | `wizard.sh` | Interactive setup; writes `deploy.yaml` |
 | `apply.sh` | Converge config and start that kit’s stack |
-| `update.sh` | Pull git repos, sync image tags, then apply everything |
+| `update.sh` | Pull git (unless `--skip-git`), skip if `update.lock` matches, otherwise apply |
 | `deploy.yaml` | Operator config (created by the wizard) |
 
 `wizard.sh` also accepts `--from-engine` (used by this wizard): set `proxy.mode: integrate` and write `deploy.yaml` without applying — the engine applies in order.
