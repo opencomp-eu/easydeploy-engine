@@ -21,6 +21,13 @@ from scripts.config_edit import (
     load_kit_branch,
     set_proxy_integrate,
 )
+from scripts.progress import (
+    NAME_WIDTH,
+    UpdateFailed,
+    combined_output,
+    kit_apply_failure_message,
+    kit_child_env,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "easydeploy-lib" / "python"))
@@ -167,7 +174,7 @@ def warn_standalone_caddy_conflicts() -> None:
 
 def ensure_docker_network(name: str) -> None:
     if subprocess.run(["docker", "network", "inspect", name], capture_output=True).returncode != 0:
-        subprocess.run(["docker", "network", "create", name], check=True)
+        subprocess.run(["docker", "network", "create", name], check=True, capture_output=True)
 
 
 def docker_compose_cmd() -> list[str]:
@@ -183,7 +190,7 @@ def docker_compose_cmd() -> list[str]:
     raise RuntimeError("Docker Compose v2 is required")
 
 
-def run_compose(*args: str) -> None:
+def run_compose(*args: str, verbose: bool = True) -> None:
     cmd = docker_compose_cmd() + ["-f", str(COMPOSE_DIR / "docker-compose.yml")]
     overlay = STATE_DIR / "compose" / "caddy-extra.yml"
     if overlay.is_file():
@@ -191,13 +198,25 @@ def run_compose(*args: str) -> None:
     cmd.extend(args)
     env = os.environ.copy()
     env["COMPOSE_PROJECT_NAME"] = COMPOSE_PROJECT_NAME
+    if not verbose:
+        env.setdefault("COMPOSE_PROGRESS", "quiet")
+        env.setdefault("DOCKER_CLI_HINTS", "false")
     if COMPOSE_ENV_PATH.is_file():
         for line in COMPOSE_ENV_PATH.read_text().splitlines():
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, value = line.split("=", 1)
             env[key.strip()] = value.strip()
-    subprocess.run(cmd, cwd=COMPOSE_DIR, check=True, env=env)
+    result = subprocess.run(
+        cmd,
+        cwd=COMPOSE_DIR,
+        capture_output=not verbose,
+        text=True,
+        env=env,
+    )
+    if result.returncode != 0:
+        detail = combined_output(result).strip() or f"exit {result.returncode}"
+        raise RuntimeError(f"docker compose {' '.join(args)} failed:\n{detail}")
 
 
 def collect_caddy_overlays(enabled: list[dict]) -> list[Path]:
@@ -247,7 +266,7 @@ def resolve_operator_deploy(
     return None
 
 
-def seed_kit_deploy(service: dict, project_root: Path = PROJECT_ROOT) -> Path:
+def seed_kit_deploy(service: dict, project_root: Path = PROJECT_ROOT, *, verbose: bool = True) -> Path:
     """Copy operator YAML into the kit and force proxy.mode: integrate. Returns kit deploy.yaml."""
     import shutil
 
@@ -261,7 +280,8 @@ def seed_kit_deploy(service: dict, project_root: Path = PROJECT_ROOT) -> Path:
             )
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(seed, dest)
-        print(f"Seeded {service['name']} deploy.yaml from {seed}")
+        if verbose:
+            print(f"Seeded {service['name']} deploy.yaml from {seed}")
     if not dest.is_file():
         raise FileNotFoundError(
             f"Missing deploy.yaml for {service['name']} at {dest}.\n"
@@ -269,7 +289,7 @@ def seed_kit_deploy(service: dict, project_root: Path = PROJECT_ROOT) -> Path:
             f"(or set services.{service['name']}.deploy) and re-run apply.sh.\n"
             f"  Interactive: bash wizard.sh"
         )
-    if set_proxy_integrate(kit_root):
+    if set_proxy_integrate(kit_root) and verbose:
         print(f"Set proxy.mode: integrate on {dest}")
     return dest
 
@@ -279,10 +299,12 @@ def ensure_enabled_kits(
     *,
     project_root: Path = PROJECT_ROOT,
     sync: bool = False,
-) -> None:
+    verbose: bool = True,
+) -> list[tuple[str, str]]:
     """Clone missing catalog kits. --sync-kits also updates existing checkouts."""
     catalog = {item["name"]: item for item in KIT_CATALOG}
     branch = load_kit_branch(project_root)
+    results: list[tuple[str, str]] = []
     for service in enabled:
         name = service["name"]
         dest = resolve_kit_path(service, project_root)
@@ -297,24 +319,50 @@ def ensure_enabled_kits(
                 )
             continue
         result = clone_named_kit(name, project_root, branch=branch)
-        print(f"Kit {name}: {result} ({dest})")
+        results.append((name, result))
+        if verbose:
+            print(f"Kit {name}: {result} ({dest})")
+    return results
 
 
-def run_kit_applies(enabled: list[dict]) -> None:
+def run_kit_applies(enabled: list[dict], *, verbose: bool = True) -> None:
     """Re-apply kits so they merge identity sidecars. Kanidm first, then others."""
     order = sorted(enabled, key=lambda item: (0 if item["name"] == "kanidm" else 1, item["name"]))
+    log_dir = STATE_DIR / "logs"
+    if not verbose:
+        print("Applying")
     for service in order:
         kit_root = resolve_kit_path(service, PROJECT_ROOT)
         apply_sh = kit_root / "apply.sh"
         if not apply_sh.is_file():
             print(f"Skipping kit apply for {service['name']}: {apply_sh} not found", file=sys.stderr)
             continue
-        print(f"Applying kit {service['name']} ({kit_root})…")
-        subprocess.run(
+        name = service["name"]
+        if verbose:
+            print(f"Applying kit {name} ({kit_root})…")
+        else:
+            print(f"  {name:<{NAME_WIDTH}} …", end="", flush=True)
+        result = subprocess.run(
             ["bash", str(apply_sh)],
             cwd=kit_root,
-            check=True,
-            env=hostfs.isolated_child_env(),
+            capture_output=not verbose,
+            text=True,
+            env=kit_child_env(hostfs.isolated_child_env(), verbose=verbose),
+        )
+        if result.returncode == 0:
+            if not verbose:
+                print(" ok")
+            continue
+        if verbose:
+            raise UpdateFailed(kit_apply_failure_message(name, "", verbose=True))
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / f"update-{name}.log"
+        log_path.write_text(combined_output(result))
+        print(" failed")
+        raise UpdateFailed(
+            kit_apply_failure_message(
+                name, combined_output(result), log_path=log_path, verbose=False
+            )
         )
 
 
@@ -325,6 +373,7 @@ def apply_engine(
     apply_kits: bool = True,
     skip_kits: bool = False,
     sync_kits: bool = False,
+    verbose: bool = True,
 ) -> None:
     config = load_engine()
     enabled = validate_engine(config)
@@ -333,20 +382,20 @@ def apply_engine(
     should_apply_kits = (not skip_kits) and (apply_kits or to_bool(identity.get("apply_kits")))
 
     if should_apply_kits:
-        ensure_enabled_kits(enabled, project_root=PROJECT_ROOT, sync=sync_kits)
+        ensure_enabled_kits(enabled, project_root=PROJECT_ROOT, sync=sync_kits, verbose=verbose)
         for service in enabled:
-            seed_kit_deploy(service, PROJECT_ROOT)
+            seed_kit_deploy(service, PROJECT_ROOT, verbose=verbose)
 
     oidc_notes = wire_identity(config, enabled, PROJECT_ROOT)
-    for line in oidc_notes:
-        print(line)
-
     embed_notes = wire_embed(config, enabled, PROJECT_ROOT)
-    for line in embed_notes:
-        print(line)
+    if verbose:
+        for line in oidc_notes:
+            print(line)
+        for line in embed_notes:
+            print(line)
 
     if should_apply_kits:
-        run_kit_applies(enabled)
+        run_kit_applies(enabled, verbose=verbose)
 
     fragments = collect_fragments(enabled)
 
@@ -357,11 +406,11 @@ def apply_engine(
     COMPOSE_ENV_PATH.write_text(f"EDE_CADDYFILE={CADDYFILE.resolve()}\n")
     COMPOSE_ENV_PATH.chmod(0o600)
 
-    print(f"Rendered {CADDYFILE} from {len(fragments)} fragment(s).")
-
     overlay = assemble_caddy_runtime_overlay(enabled)
-    if overlay is not None:
-        print(f"Caddy compose overlay: {overlay}")
+    if verbose:
+        print(f"Rendered {CADDYFILE} from {len(fragments)} fragment(s).")
+        if overlay is not None:
+            print(f"Caddy compose overlay: {overlay}")
 
     if skip_runtime:
         return
@@ -372,13 +421,29 @@ def apply_engine(
     if overlay is not None:
         ensure_docker_network("caddy_net")
 
-    if not skip_pull:
-        print("Pulling Caddy image…")
-        run_compose("pull")
-
-    print("Starting shared Caddy…")
-    run_compose("up", "-d", "--wait", "--remove-orphans")
-    reload_caddy()
+    if not verbose:
+        print(f"  {'caddy':<{NAME_WIDTH}} …", end="", flush=True)
+    try:
+        if not skip_pull:
+            if verbose:
+                print("Pulling Caddy image…")
+            run_compose("pull", verbose=verbose)
+        if verbose:
+            print("Starting shared Caddy…")
+        run_compose("up", "-d", "--wait", "--remove-orphans", verbose=verbose)
+        reload_caddy(verbose=verbose)
+    except Exception as exc:
+        if not verbose:
+            print(" failed")
+            raise UpdateFailed(
+                "caddy failed to update.\n"
+                f"{exc}\n\n"
+                "Re-run with more detail: bash update.sh --verbose"
+            ) from exc
+        raise
+    if not verbose:
+        print(" ok")
+        return
 
     print()
     print("=== Easy Deploy Engine summary ===")
@@ -390,7 +455,7 @@ def apply_engine(
     print()
 
 
-def reload_caddy() -> None:
+def reload_caddy(*, verbose: bool = True) -> None:
     """Apply Caddyfile changes; running containers do not pick up bind-mount edits automatically."""
     if subprocess.run(["docker", "inspect", "easydeploy_caddy"], capture_output=True).returncode != 0:
         return
@@ -410,11 +475,13 @@ def reload_caddy() -> None:
         text=True,
     )
     if result.returncode == 0:
-        print("Reloaded Caddy configuration.")
+        if verbose:
+            print("Reloaded Caddy configuration.")
         return
     detail = (result.stderr or result.stdout or "unknown error").strip()
-    print(f"Caddy reload failed ({detail}); recreating container…", file=sys.stderr)
-    run_compose("up", "-d", "--force-recreate", "--wait", "caddy")
+    if verbose:
+        print(f"Caddy reload failed ({detail}); recreating container…", file=sys.stderr)
+    run_compose("up", "-d", "--force-recreate", "--wait", "caddy", verbose=verbose)
 
 
 def ensure_backup_secret(config: dict) -> None:
@@ -494,6 +561,9 @@ def main() -> None:
             sync_kits=args.sync_kits,
         )
         reconcile_backup_schedule()
+    except UpdateFailed as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1) from exc
     except (FileNotFoundError, ValueError, RuntimeError, PermissionError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

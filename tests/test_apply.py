@@ -141,3 +141,39 @@ def test_run_kit_applies_drops_parent_venv(tmp_path, monkeypatch):
     assert env is not None
     assert "VIRTUAL_ENV" not in env
     assert "UV_PROJECT" not in env
+    assert env.get("EASYDEPLOY_VERBOSE") == "1"
+
+
+def test_run_kit_applies_quiet_failure_writes_log(tmp_path, monkeypatch, capsys):
+    import subprocess
+
+    import pytest
+
+    import scripts.apply as engine_apply
+    from scripts.progress import UpdateFailed
+
+    kit = tmp_path / "opencloud-easy-deploy"
+    kit.mkdir()
+    (kit / "apply.sh").write_text("#!/bin/bash\n")
+    state = tmp_path / ".easydeploy-engine"
+
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args[0], 1, stdout="pulling images\n", stderr="euro-office failed\n"
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(engine_apply, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(engine_apply, "STATE_DIR", state)
+
+    with pytest.raises(UpdateFailed, match="opencloud failed to apply") as raised:
+        engine_apply.run_kit_applies(
+            [{"name": "opencloud", "path": str(kit)}],
+            verbose=False,
+        )
+    out = capsys.readouterr().out
+    assert "failed" in out
+    log_path = state / "logs" / "update-opencloud.log"
+    assert log_path.is_file()
+    assert "euro-office failed" in log_path.read_text()
+    assert "bash update.sh --verbose" in str(raised.value)

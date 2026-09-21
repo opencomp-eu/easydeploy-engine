@@ -167,7 +167,7 @@ def emit_wizard_discover(engine_root: Path = PROJECT_ROOT) -> str:
 
 
 def clone_kit(repo: str, dest: Path, *, branch: str | None = None) -> str:
-    """Clone or update a kit checkout. Returns 'cloned', 'updated', or 'exists'."""
+    """Clone or update a kit checkout. Returns 'cloned', 'updated', 'already up to date', or 'exists'."""
     if kit_is_present(dest):
         if branch:
             return update_kit(dest, branch=branch)
@@ -189,12 +189,18 @@ def clone_kit(repo: str, dest: Path, *, branch: str | None = None) -> str:
 
 def update_kit(dest: Path, *, branch: str) -> str:
     """Fetch origin and check out branch in an existing kit clone."""
+    from scripts.progress import git_short_head
+
     branch = normalize_branch(branch)
     if not (dest / ".git").exists():
         return "exists"
-    _run_git(dest, "fetch", "origin")
-    _run_git(dest, "checkout", "-B", branch, f"origin/{branch}")
-    _run_git(dest, "submodule", "update", "--init", "--recursive")
+    old_sha = git_short_head(dest)
+    _run_git(dest, "fetch", "-q", "origin")
+    _run_git(dest, "checkout", "-q", "-B", branch, f"origin/{branch}")
+    _run_git(dest, "submodule", "update", "--init", "--recursive", "--quiet")
+    new_sha = git_short_head(dest)
+    if old_sha and new_sha and old_sha == new_sha:
+        return "already up to date"
     return "updated"
 
 
@@ -204,8 +210,17 @@ def _git_env() -> dict[str, str]:
     return env
 
 
-def _run_git(dest: Path, *args: str) -> None:
-    subprocess.run(["git", "-C", str(dest), *args], check=True, env=_git_env())
+def _run_git(dest: Path, *args: str) -> subprocess.CompletedProcess:
+    result = subprocess.run(
+        ["git", "-C", str(dest), *args],
+        capture_output=True,
+        text=True,
+        env=_git_env(),
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "git command failed").strip()
+        raise RuntimeError(f"git {' '.join(args)} failed in {dest}:\n{detail}")
+    return result
 
 
 def clone_named_kit(

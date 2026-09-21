@@ -97,3 +97,73 @@ def test_update_module_imports():
 
     assert callable(update_module.update_stack)
     assert callable(update_module.pull_engine_repo)
+
+
+def test_quiet_update_stack_prints_summary(tmp_path: Path, monkeypatch, capsys):
+    import scripts.update as update_module
+    from scripts.progress import GitSync
+
+    monkeypatch.setattr(update_module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        update_module,
+        "pull_engine_repo",
+        lambda **_kwargs: GitSync(name="engine", status="already up to date", old_sha="abc", new_sha="abc"),
+    )
+    monkeypatch.setattr(
+        update_module,
+        "load_engine",
+        lambda: {"engine": {"network": "easydeploy-net"}, "services": {"kanidm": {"enabled": True, "path": "/tmp/k", "fragment": "x"}}},
+    )
+    monkeypatch.setattr(
+        update_module,
+        "validate_engine",
+        lambda _config: [{"name": "kanidm", "path": tmp_path / "kanidm-easy-deploy", "fragment_rel": "x"}],
+    )
+    monkeypatch.setattr(
+        update_module,
+        "sync_kit_repos",
+        lambda *_args, **_kwargs: [
+            GitSync(name="kanidm", status="already up to date", old_sha="def", new_sha="def")
+        ],
+    )
+    monkeypatch.setattr(update_module, "sync_image_tags", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(update_module, "snapshot_image_ids", lambda: {"caddy:2": "id1"})
+    monkeypatch.setattr(update_module, "apply_engine", lambda **_kwargs: None)
+
+    update_module.update_stack(verbose=False)
+    out = capsys.readouterr().out
+    assert "Updating Easy Deploy" in out
+    assert "Git" in out
+    assert "already up to date" in out
+    assert "Image pins" in out
+    assert "unchanged" in out
+    assert "Docker" in out
+    assert "all images already up to date" in out
+    assert "Update complete." in out
+    assert "Applying kit" not in out
+    assert "=== Easy Deploy Engine summary ===" not in out
+
+
+def test_quiet_update_reports_docker_image_changes(monkeypatch, capsys):
+    import scripts.update as update_module
+    from scripts.progress import GitSync
+
+    images = [{"caddy:2": "old"}, {"caddy:2": "new"}]
+
+    monkeypatch.setattr(
+        update_module,
+        "pull_engine_repo",
+        lambda **_kwargs: GitSync(name="engine", status="updated", old_sha="aaa", new_sha="bbb"),
+    )
+    monkeypatch.setattr(update_module, "load_engine", lambda: {})
+    monkeypatch.setattr(update_module, "validate_engine", lambda _config: [])
+    monkeypatch.setattr(update_module, "sync_kit_repos", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(update_module, "sync_image_tags", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(update_module, "snapshot_image_ids", lambda: images.pop(0))
+    monkeypatch.setattr(update_module, "apply_engine", lambda **_kwargs: None)
+
+    update_module.update_stack(verbose=False, skip_git=True, skip_tags=True)
+    out = capsys.readouterr().out
+    assert "1 image(s) updated:" in out
+    assert "caddy:2" in out
+    assert "Update complete." in out

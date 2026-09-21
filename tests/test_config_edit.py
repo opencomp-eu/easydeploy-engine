@@ -196,6 +196,7 @@ def test_clone_kit_updates_existing_checkout(tmp_path: Path):
 
     assert clone_kit(str(src), dest, branch="feature/engine") == "updated"
     assert (dest / "wizard.sh").read_text() == "v2-kit-detect\n"
+    assert clone_kit(str(src), dest, branch="feature/engine") == "already up to date"
 
 
 def test_clone_kit_rejects_non_kit_dir(tmp_path: Path):

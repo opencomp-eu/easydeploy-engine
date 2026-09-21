@@ -80,7 +80,7 @@ bash apply.sh
 
 Later changes: edit `kits/opencloud.yaml` (or `engine.yaml`) and run `bash apply.sh` again.
 
-**Updates:** `bash update.sh` pulls the engine and enabled kit repos, merges new `tag` / `tools_tag` pins from each kit’s `deploy.yaml.example` into your operator YAML (`kits/*.yaml` or kit `deploy.yaml`), then runs the full apply (pull images, recreate containers). Use `--skip-tags` to keep your current image pins, or `--skip-git` when not using git checkouts.
+**Updates:** `bash update.sh` pulls the engine and enabled kit repos, merges new `tag` / `tools_tag` pins from each kit’s `deploy.yaml.example` into your operator YAML (`kits/*.yaml` or kit `deploy.yaml`), then runs the full apply (pull images, recreate containers). Default output is a short summary (git, image pins, apply result, Docker). Use `--verbose` for the full kit/Compose log, `--skip-tags` to keep your current image pins, or `--skip-git` when not using git checkouts.
 
 `--skip-kits` only reloads Caddy / identity sidecars without touching kit stacks.
 
