@@ -43,7 +43,7 @@ The wizard can:
 3. Switch those kits to `proxy.mode: integrate`.
 4. Apply Kanidm then apps, wire OpenCloud and Matrix OIDC plus Stalwart LDAP, and start shared Caddy.
 
-The clone branch defaults to `feature/engine` (where the engine-aware kit changes live today). After those land on `main`, set `engine.kit_branch: main` in `engine.yaml`, pass `--branch main`, or answer `main` in the wizard.
+The clone branch defaults to `master`. Override it with `engine.kit_branch` in `engine.yaml`, `--branch`, or the wizard prompt.
 
 Re-run a kit `apply.sh`, then engine `apply.sh`, whenever a fragment or domain changes. Re-run `bash wizard.sh` to add a service. For version bumps, `bash update.sh`.
 
@@ -121,7 +121,7 @@ A kit the engine can clone and run looks like this (Kanidm, OpenCloud, Matrix, a
 
 `wizard.sh` also accepts `--from-engine` (used by this wizard): set `proxy.mode: integrate` and write `deploy.yaml` without applying — the engine applies in order.
 
-Checkout layout (siblings of this repo), cloned on `engine.kit_branch` (default `feature/engine`):
+Checkout layout (siblings of this repo), cloned on `engine.kit_branch` (default `master`):
 
 - `../kanidm-easy-deploy` ← `https://github.com/opencomp-eu/kanidm-easy-deploy.git`
 - `../opencloud-easy-deploy` ← `https://github.com/opencomp-eu/opencloud-easy-deploy.git`

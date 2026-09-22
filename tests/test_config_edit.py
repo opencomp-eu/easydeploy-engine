@@ -52,7 +52,7 @@ def test_emit_wizard_discover(tmp_path: Path):
     _write_kit(tmp_path, "kanidm-easy-deploy")
 
     text = emit_wizard_discover(engine)
-    assert "KIT_BRANCH_DEFAULT=feature/engine" in text
+    assert "KIT_BRANCH_DEFAULT=master" in text
     assert "KANIDM_FOUND=y" in text
     assert "KANIDM_HAS_DEPLOY=y" in text
     assert "KANIDM_HAS_WIZARD=y" in text
@@ -225,7 +225,7 @@ def test_load_kit_branch_from_engine_yaml(tmp_path: Path):
     engine.mkdir()
     (engine / "engine.yaml").write_text(yaml.safe_dump({"engine": {"kit_branch": "main"}}))
     assert load_kit_branch(engine) == "main"
-    assert DEFAULT_KIT_BRANCH == "feature/engine"
+    assert DEFAULT_KIT_BRANCH == "master"
 
 
 def test_clone_kit_checks_out_branch(tmp_path: Path):

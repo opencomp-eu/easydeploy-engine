@@ -27,7 +27,7 @@ usage() {
 	echo "switches them to proxy.mode: integrate, and applies Kanidm → apps →"
 	echo "shared Caddy."
 	echo
-	echo "  --branch   Git branch to clone (default: feature/engine; use main later)"
+	echo "  --branch   Git branch to clone (default: master)"
 }
 
 while [[ $# -gt 0 ]]; do

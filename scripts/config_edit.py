@@ -17,8 +17,8 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_ENGINE_PATH = PROJECT_ROOT / "engine.yaml"
 
-# Git branch used when the engine clones sibling kits. Flip to "main" after merge.
-DEFAULT_KIT_BRANCH = "feature/engine"
+# Default branch of the kit repositories. The engine clones this unless engine.yaml says otherwise.
+DEFAULT_KIT_BRANCH = "master"
 
 # Kits the engine can discover. orchestrate=True means the wizard may clone the
 # repo as a sibling and run wizard.sh. Kits stay standalone-deployable on their own.

@@ -5,8 +5,7 @@
 engine:
   network: easydeploy-net
   # Git branch used when apply.sh / wizard.sh clones sibling kits.
-  # feature/engine until those changes land on main.
-  kit_branch: feature/engine
+  kit_branch: master
 
 # Engine state and Caddy certificates can be stored in a local or SFTP Borg
 # repository.  The enabled kits keep their own backup repositories/settings.
