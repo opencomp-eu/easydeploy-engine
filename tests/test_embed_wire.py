@@ -54,22 +54,35 @@ def test_https_origin_normalizes_host_and_url():
     ]
 
 
+def _kit_kanidm(root: Path, domain: str = "idm.test.example") -> Path:
+    kit = root / "kanidm-easy-deploy"
+    kit.mkdir()
+    (kit / "deploy.yaml").write_text(yaml.safe_dump({"kanidm": {"domain": domain}}))
+    return kit
+
+
 def test_wire_embed_uses_bulwark_domain(tmp_path: Path):
     opencloud = _kit_opencloud(tmp_path)
     matrix = _kit_matrix(tmp_path, element="chat.test.example")
+    kanidm = _kit_kanidm(tmp_path)
     stalwart = _kit_stalwart(tmp_path, webmail="mailui.test.example")
     enabled = [
         {"name": "opencloud", "path": opencloud, "fragment_rel": "x", "oidc": {}},
         {"name": "matrix", "path": matrix, "fragment_rel": "x", "oidc": {}},
+        {"name": "kanidm", "path": kanidm, "fragment_rel": "x", "oidc": {}},
         {"name": "stalwart", "path": stalwart, "fragment_rel": "x", "oidc": {}},
     ]
     notes = wire_embed({}, enabled, tmp_path)
     oc_sidecar = opencloud / ".opencloud-easy-deploy" / "integration" / "embed.yaml"
     mx_sidecar = matrix / ".matrix-easy-deploy" / "integration" / "embed.yaml"
+    idm_sidecar = kanidm / ".kanidm-easy-deploy" / "integration" / "embed.yaml"
     assert yaml.safe_load(oc_sidecar.read_text())["frame_ancestors"] == [
         "https://mailui.test.example"
     ]
     assert yaml.safe_load(mx_sidecar.read_text())["frame_ancestors"] == [
+        "https://mailui.test.example"
+    ]
+    assert yaml.safe_load(idm_sidecar.read_text())["frame_ancestors"] == [
         "https://mailui.test.example"
     ]
     assert any("mailui.test.example" in line for line in notes)

@@ -79,8 +79,9 @@ When Kanidm and OpenCloud, Matrix, or Stalwart are enabled, the engine writes **
 - Stalwart directory: `<stalwart>/.stalwart-easy-deploy/integration/identity-provider.yaml`
 - OpenCloud embed parents: `<opencloud>/.opencloud-easy-deploy/integration/embed.yaml`
 - Matrix/Element embed parents: `<matrix>/.matrix-easy-deploy/integration/embed.yaml`
+- Kanidm embed parents: `<kanidm>/.kanidm-easy-deploy/integration/embed.yaml`
 
-The embed sidecars list the Bulwark webmail origin so OpenCloud and Element can be shown inline in webmail. Re-apply after changing `bulwark.domain`.
+The embed sidecars list the Bulwark webmail origin so OpenCloud and Element can be shown inline in webmail. Kanidm's sidecar lets that origin frame the OAuth login, which Element navigates to inside the iframe. Re-apply after changing `bulwark.domain`.
 
 Apply order after enabling both (handled by engine `wizard.sh` and `apply.sh`):
 

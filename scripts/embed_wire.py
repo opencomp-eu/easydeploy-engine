@@ -1,11 +1,14 @@
-"""Allow Bulwark (and other configured parents) to iframe OpenCloud and Element.
+"""Allow Bulwark (and other configured parents) to iframe OpenCloud, Element, and Kanidm login.
 
 Writes kit integration sidecars:
 - OpenCloud: .opencloud-easy-deploy/integration/embed.yaml
 - Matrix: .matrix-easy-deploy/integration/embed.yaml
+- Kanidm: .kanidm-easy-deploy/integration/embed.yaml
 
-Kits merge those files on apply. Operators can add extra origins in each kit's
-deploy.yaml (`embed.frame_ancestors`) or opt out with `embed.managed: false`.
+Element's login navigates the webmail iframe to Kanidm. Kanidm's sidecar is the
+list of parents allowed to frame that login page. Kits merge those files on
+apply. Operators can add extra origins in each kit's deploy.yaml
+(`embed.frame_ancestors`) or opt out with `embed.managed: false`.
 """
 
 from __future__ import annotations
@@ -35,6 +38,7 @@ PLACEHOLDER_HOSTS = frozenset(
 KIT_EMBED_SIDECARS = (
     ("opencloud", ".opencloud-easy-deploy/integration/embed.yaml"),
     ("matrix", ".matrix-easy-deploy/integration/embed.yaml"),
+    ("kanidm", ".kanidm-easy-deploy/integration/embed.yaml"),
 )
 
 
@@ -131,11 +135,12 @@ def wire_embed(
 
     if written:
         notes.append(
-            "Re-apply OpenCloud and Matrix so they pick up embed.frame_ancestors. "
+            "Re-apply Kanidm, OpenCloud, Matrix, and Stalwart so they pick up embed "
+            "frame-ancestors and the IdP frame-src exception. "
             "On a same-VPS install, bash apply.sh in easydeploy-engine does this."
         )
     elif origins:
         notes.append(
-            "Embed parents configured, but OpenCloud/Matrix are not enabled on this engine."
+            "Embed parents configured, but OpenCloud/Matrix/Kanidm are not enabled on this engine."
         )
     return notes

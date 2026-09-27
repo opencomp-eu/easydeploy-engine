@@ -144,7 +144,7 @@ When Kanidm and an app kit are enabled, `apply.sh` writes integration sidecars s
 3. Matrix MAS upstream → `.matrix-easy-deploy/integration/oidc-provider.yaml`
 4. Stalwart directory → `.stalwart-easy-deploy/integration/identity-provider.yaml`
 
-When Stalwart/Bulwark is enabled, apply also writes **embed** sidecars so OpenCloud and Element can load inside Bulwark's inline iframe. Those use `bulwark.domain` from the Stalwart kit (or `identity.consumers.stalwart.webmail` / `embed.frame_ancestors` in `engine.yaml`). Each kit can add more origins in `embed.frame_ancestors` or set `embed.managed: false`.
+When Stalwart/Bulwark is enabled, apply also writes **embed** sidecars so OpenCloud and Element can load inside Bulwark's inline iframe. Those use `bulwark.domain` from the Stalwart kit (or `identity.consumers.stalwart.webmail` / `embed.frame_ancestors` in `engine.yaml`). The Kanidm sidecar lets that same origin frame the login page, and Stalwart's Caddy adds the Kanidm origin to Bulwark's `frame-src`, so Element's sign-in redirect is not blocked inside the iframe. Each kit can add more origins in `embed.frame_ancestors` or set `embed.managed: false`.
 
 Then re-apply Kanidm, then the app kit (the engine wizard does this order for you).
 
