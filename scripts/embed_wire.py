@@ -5,9 +5,11 @@ Writes kit integration sidecars:
 - Matrix: .matrix-easy-deploy/integration/embed.yaml
 - Kanidm: .kanidm-easy-deploy/integration/embed.yaml
 
-Element's login navigates the webmail iframe to Kanidm. Kanidm's sidecar is the
-list of parents allowed to frame that login page. Kits merge those files on
-apply. Operators can add extra origins in each kit's deploy.yaml
+Element's login navigates the webmail iframe to Kanidm. After sign-in, Element
+also opens Kanidm in a nested iframe (silent session refresh). Kanidm's sidecar
+therefore lists both the webmail parent and the app origins in between.
+OpenCloud and Matrix sidecars list only the webmail parent. Kits merge those
+files on apply. Operators can add extra origins in each kit's deploy.yaml
 (`embed.frame_ancestors`) or opt out with `embed.managed: false`.
 """
 
@@ -17,6 +19,9 @@ from pathlib import Path
 from typing import Any
 
 from scripts.oidc_wire import (
+    read_matrix_domain,
+    read_matrix_element_domain,
+    read_opencloud_domain,
     read_webmail_domain,
     resolve_kit_path,
     write_sidecar,
@@ -105,13 +110,62 @@ def collect_embed_parents(engine_config: dict, enabled: list[dict], project_root
     return unique_https_origins(raw)
 
 
+def _consumer_domain(engine_config: dict, consumer: str, key: str) -> str:
+    identity = engine_config.get("identity") or {}
+    consumers = identity.get("consumers") if isinstance(identity, dict) else {}
+    if not isinstance(consumers, dict):
+        return ""
+    entry = consumers.get(consumer) or {}
+    if not isinstance(entry, dict):
+        return ""
+    return str(entry.get(key) or "").strip()
+
+
+def collect_nested_app_origins(engine_config: dict, enabled: list[dict], project_root: Path) -> list[str]:
+    """App origins that sit between webmail and Kanidm during OIDC silent refresh."""
+    raw: list[Any] = []
+    by_name = {item["name"]: item for item in enabled}
+
+    opencloud_domain = _consumer_domain(engine_config, "opencloud", "domain")
+    if not opencloud_domain and (opencloud := by_name.get("opencloud")):
+        try:
+            opencloud_domain = read_opencloud_domain(resolve_kit_path(opencloud, project_root))
+        except (OSError, ValueError):
+            opencloud_domain = ""
+    if opencloud_domain:
+        raw.append(opencloud_domain)
+
+    matrix_domain = _consumer_domain(engine_config, "matrix", "domain")
+    element_domain = _consumer_domain(engine_config, "matrix", "element_domain")
+    matrix = by_name.get("matrix")
+    if matrix:
+        kit_root = resolve_kit_path(matrix, project_root)
+        if not matrix_domain:
+            try:
+                matrix_domain = read_matrix_domain(kit_root)
+            except (OSError, ValueError):
+                matrix_domain = ""
+        if matrix_domain and not element_domain:
+            element_domain = read_matrix_element_domain(kit_root, matrix_domain)
+    if matrix_domain:
+        raw.append(matrix_domain)
+    if element_domain:
+        raw.append(element_domain)
+    return unique_https_origins(raw)
+
+
 def wire_embed(
     engine_config: dict,
     enabled: list[dict],
     project_root: Path,
 ) -> list[str]:
     """Write embed sidecars so apps can be iframed by Bulwark. Returns status lines."""
-    origins = collect_embed_parents(engine_config, enabled, project_root)
+    parents = collect_embed_parents(engine_config, enabled, project_root)
+    # Silent OIDC refresh loads Kanidm inside the app, which is itself inside
+    # webmail. frame-ancestors checks every ancestor, so both must be listed.
+    kanidm_origins = unique_https_origins(
+        [*parents, *collect_nested_app_origins(engine_config, enabled, project_root)]
+    )
     by_name = {item["name"]: item for item in enabled}
     notes: list[str] = []
     written = 0
@@ -122,15 +176,21 @@ def wire_embed(
             continue
         kit_root = resolve_kit_path(service, project_root)
         sidecar = kit_root / relpath
-        if not origins:
+        if not parents:
             if sidecar.is_file():
                 sidecar.unlink()
                 notes.append(f"Removed {name} embed sidecar (no webmail/parent origin configured).")
             continue
-        write_sidecar(sidecar, {"frame_ancestors": origins}, header=EMBED_SIDECAR_HEADER)
-        notes.append(
-            f"Allowed {name} to be embedded by {', '.join(origins)} ({sidecar})."
-        )
+        frame_origins = kanidm_origins if name == "kanidm" else parents
+        write_sidecar(sidecar, {"frame_ancestors": frame_origins}, header=EMBED_SIDECAR_HEADER)
+        if name == "kanidm":
+            notes.append(
+                f"Allowed Kanidm login to be framed by {', '.join(frame_origins)} ({sidecar})."
+            )
+        else:
+            notes.append(
+                f"Allowed {name} to be embedded by {', '.join(frame_origins)} ({sidecar})."
+            )
         written += 1
 
     if written:
@@ -139,7 +199,7 @@ def wire_embed(
             "frame-ancestors and the IdP frame-src exception. "
             "On a same-VPS install, bash apply.sh in easydeploy-engine does this."
         )
-    elif origins:
+    elif parents:
         notes.append(
             "Embed parents configured, but OpenCloud/Matrix/Kanidm are not enabled on this engine."
         )

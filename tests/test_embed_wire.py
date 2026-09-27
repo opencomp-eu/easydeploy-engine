@@ -83,7 +83,10 @@ def test_wire_embed_uses_bulwark_domain(tmp_path: Path):
         "https://mailui.test.example"
     ]
     assert yaml.safe_load(idm_sidecar.read_text())["frame_ancestors"] == [
-        "https://mailui.test.example"
+        "https://mailui.test.example",
+        "https://cloud.test.example",
+        "https://matrix.test.example",
+        "https://chat.test.example",
     ]
     assert any("mailui.test.example" in line for line in notes)
 
