@@ -327,6 +327,23 @@ def set_proxy_integrate(kit_root: Path) -> bool:
     return True
 
 
+def disable_kit_backup_schedule(kit_root: Path) -> bool:
+    """Turn off a kit's own backup timer. Returns True if changed."""
+    deploy = kit_root / DEPLOY_NAME
+    if not deploy.is_file():
+        return False
+    data = load_yaml(deploy)
+    backup = data.get("backup")
+    if not isinstance(backup, dict):
+        return False
+    schedule = backup.get("schedule")
+    if not isinstance(schedule, dict) or schedule.get("enabled") is not True:
+        return False
+    schedule["enabled"] = False
+    save_yaml(deploy, data)
+    return True
+
+
 def update_from_wizard(
     *,
     enabled: list[str],

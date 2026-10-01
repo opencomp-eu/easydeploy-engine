@@ -91,7 +91,13 @@ If `kits/<name>.yaml` is absent, the kit’s own `deploy.yaml` is used — so yo
 Copy the backup block from `engine.yaml.example` into `engine.yaml` and set
 `backup.enabled: true`. The engine plan stores `engine.yaml`, `.easydeploy-engine`,
 and the Caddy Docker volumes in Borg. Each enabled kit remains responsible for
-its own data and repository.
+its own data and repository, keyed with the kit's own `BORG_PASSPHRASE`, so a
+kit's archives open the same way whether the engine or the kit made them.
+
+When `backup.schedule.enabled` is true in `engine.yaml`, the engine timer backs
+up the engine and then every enabled kit; `apply.sh` turns off each kit's own
+`backup.schedule` so nothing is backed up twice. With the engine schedule off,
+kits keep their own timers.
 
 ```bash
 bash backup.sh                         # engine, then enabled kits
@@ -100,8 +106,12 @@ bash backup.sh --export /var/backups/portable --encrypt
 bash backup.sh --schedule               # engine and kit systemd timers
 bash restore.sh --latest --yes           # engine only
 bash restore-all.sh --latest --yes       # engine, then all enabled kits
+bash restore-all.sh --archive engine_2026-01-01T03:00:00 --yes   # an older workspace backup
 bash bootstrap-from-backup.sh /mnt/backup/engine-backup-2026-01-01T03:00:00.tar.gz --yes
 ```
+
+`restore-all.sh --archive` and `--latest` pick, for every kit, the archive taken
+by the same engine backup run, and refuse to start if any kit is missing one.
 
 `--export DIR` writes one portable archive per service into `DIR`; use
 `restore-all.sh --file DIR --yes` to restore that set on a fresh host. Use

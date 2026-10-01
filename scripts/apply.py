@@ -18,6 +18,7 @@ from scripts.oidc_wire import resolve_kit_path, to_bool, wire_identity
 from scripts.config_edit import (
     KIT_CATALOG,
     clone_named_kit,
+    disable_kit_backup_schedule,
     kit_is_present,
     load_kit_branch,
     set_proxy_integrate,
@@ -302,8 +303,27 @@ def resolve_operator_deploy(
     return None
 
 
-def seed_kit_deploy(service: dict, project_root: Path = PROJECT_ROOT, *, verbose: bool = True) -> Path:
-    """Copy operator YAML into the kit and force proxy.mode: integrate. Returns kit deploy.yaml."""
+def engine_schedules_backups(config: dict) -> bool:
+    """True when the engine's nightly backup.sh run covers every enabled kit."""
+    backup = config.get("backup")
+    if not isinstance(backup, dict) or not to_bool(backup.get("enabled")):
+        return False
+    schedule = backup.get("schedule")
+    return isinstance(schedule, dict) and to_bool(schedule.get("enabled"))
+
+
+def seed_kit_deploy(
+    service: dict,
+    project_root: Path = PROJECT_ROOT,
+    *,
+    verbose: bool = True,
+    engine_schedules: bool = False,
+) -> Path:
+    """Copy operator YAML into the kit and force proxy.mode: integrate. Returns kit deploy.yaml.
+
+    When the engine schedules backups, the kit's own timer is turned off so each
+    kit is backed up once per night, by the engine run.
+    """
     import shutil
 
     kit_root = resolve_kit_path(service, project_root)
@@ -327,6 +347,8 @@ def seed_kit_deploy(service: dict, project_root: Path = PROJECT_ROOT, *, verbose
         )
     if set_proxy_integrate(kit_root) and verbose:
         print(f"Set proxy.mode: integrate on {dest}")
+    if engine_schedules and disable_kit_backup_schedule(kit_root) and verbose:
+        print(f"Disabled the {service['name']} backup timer; the engine's scheduled backup covers it")
     return dest
 
 
@@ -454,8 +476,9 @@ def apply_engine(
 
     if should_apply_kits:
         ensure_enabled_kits(enabled, project_root=PROJECT_ROOT, sync=sync_kits, verbose=verbose)
+        engine_schedules = engine_schedules_backups(config)
         for service in enabled:
-            seed_kit_deploy(service, PROJECT_ROOT, verbose=verbose)
+            seed_kit_deploy(service, PROJECT_ROOT, verbose=verbose, engine_schedules=engine_schedules)
 
     oidc_notes = wire_identity(config, enabled, PROJECT_ROOT)
     embed_notes = wire_embed(config, enabled, PROJECT_ROOT)

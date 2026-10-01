@@ -143,20 +143,22 @@ run_kit_backup() {
     [[ "$encrypt" == "true" ]] && args+=(--encrypt)
     [[ "$cold" == "true" ]] && args+=(--cold)
     info "Backing up kit ${name}..."
-    bash "$script" "${args[@]}"
+    engine_adopt_kit_repo "$name" "$kit_root"
+    engine_run_kit "$script" "${args[@]}"
 }
 
 run_kit_list() {
     local name="$1" kit_root="$2"
     [[ -f "${kit_root}/backup.sh" ]] || die "Enabled kit '${name}' has no backup.sh at ${kit_root}"
     info "${name} archives:"
-    bash "${kit_root}/backup.sh" --list
+    engine_adopt_kit_repo "$name" "$kit_root"
+    engine_run_kit "${kit_root}/backup.sh" --list
 }
 
 run_kit_schedule() {
     local name="$1" kit_root="$2"
     [[ -f "${kit_root}/backup.sh" ]] || die "Enabled kit '${name}' has no backup.sh at ${kit_root}"
-    bash "${kit_root}/backup.sh" --schedule
+    engine_run_kit "${kit_root}/backup.sh" --schedule
 }
 
 main() {

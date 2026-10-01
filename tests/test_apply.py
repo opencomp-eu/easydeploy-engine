@@ -79,6 +79,50 @@ def test_seed_kit_deploy_copies_and_sets_integrate(tmp_path: Path):
     assert data["proxy"]["mode"] == "integrate"
 
 
+def _seed_scheduled_kit(tmp_path: Path) -> dict:
+    kit = tmp_path / "kanidm-easy-deploy"
+    kit.mkdir()
+    seed = tmp_path / "kits" / "kanidm.yaml"
+    seed.parent.mkdir()
+    seed.write_text(
+        "kanidm:\n  domain: idm.example.com\n"
+        "backup:\n  enabled: true\n  schedule:\n    enabled: true\n    calendar: '*-*-* 03:00:00'\n"
+    )
+    return {"name": "kanidm", "path": kit, "fragment_rel": "x", "deploy": None}
+
+
+def test_seed_kit_deploy_disables_kit_timer_when_engine_schedules(tmp_path: Path):
+    import yaml
+
+    dest = seed_kit_deploy(_seed_scheduled_kit(tmp_path), tmp_path, engine_schedules=True)
+    backup = yaml.safe_load(dest.read_text())["backup"]
+    assert backup["enabled"] is True
+    assert backup["schedule"] == {"enabled": False, "calendar": "*-*-* 03:00:00"}
+
+
+def test_seed_kit_deploy_keeps_kit_timer_without_engine_schedule(tmp_path: Path):
+    import yaml
+
+    dest = seed_kit_deploy(_seed_scheduled_kit(tmp_path), tmp_path)
+    assert yaml.safe_load(dest.read_text())["backup"]["schedule"]["enabled"] is True
+
+
+@pytest.mark.parametrize(
+    ("backup", "expected"),
+    [
+        ({"enabled": True, "schedule": {"enabled": True}}, True),
+        ({"enabled": True, "schedule": {"enabled": False}}, False),
+        ({"enabled": False, "schedule": {"enabled": True}}, False),
+        ({"enabled": True}, False),
+        (None, False),
+    ],
+)
+def test_engine_schedules_backups(backup, expected):
+    from scripts.apply import engine_schedules_backups
+
+    assert engine_schedules_backups({"backup": backup}) is expected
+
+
 def test_seed_kit_deploy_missing_yaml(tmp_path: Path):
     kit = tmp_path / "opencloud-easy-deploy"
     kit.mkdir()

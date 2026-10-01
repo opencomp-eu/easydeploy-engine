@@ -14,6 +14,8 @@ usage() {
 Usage: bash restore-all.sh (--archive NAME | --latest | --file PATH) [restore options]
 
 The engine is restored first, followed by enabled kits in Kanidm-first order.
+With --archive or --latest, each kit restores the archive taken by the same
+engine backup run; every archive is resolved before anything is restored.
 When --file names a directory, files named <service>-backup-*.tar.gz[.age]
 are selected for each service. --yes, --passphrase-file, and --keep-stopped
 are passed to every restore script.
@@ -21,6 +23,27 @@ EOF
 }
 
 die_usage() { usage >&2; die "$1"; }
+
+# Print the engine archive name and its backup-run window as "name<TAB>start<TAB>end".
+resolve_engine_run() {
+    local mode="$1" value="$2"
+    (
+        eval "$(easydeploy_backup_settings_shell "${ENGINE_YAML}")" \
+            || die "Invalid backup configuration in engine.yaml"
+        [[ "${BACKUP_ENABLED}" == true ]] || \
+            die "Engine backups are disabled; set backup.enabled=true in engine.yaml before restoring from Borg."
+        easydeploy_backup_repo_env "${SCRIPT_DIR}/.easydeploy-engine/secrets.yaml"
+        local archive window
+        if [[ "$mode" == latest ]]; then
+            archive="$(borg list --short --last 1 "${BACKUP_REPO_URL}")"
+            [[ -n "$archive" ]] || die "No engine archives found in ${BACKUP_REPO_URL}."
+        else
+            archive="$(easydeploy_backup_resolve_archive "${BACKUP_REPO_URL}" "$value")"
+        fi
+        window="$(engine_archive_window "${BACKUP_REPO_URL}" "$archive")"
+        printf '%s\t%s\n' "$archive" "$window"
+    )
+}
 
 main() {
     local mode="" value=""
@@ -46,25 +69,27 @@ main() {
         die "Portable backup not found: $value"
     fi
 
-    if [[ "$mode" == file && -d "$value" ]]; then
-        local engine_file=""
-        for candidate in "$value/engine-backup-"*.tar.gz "$value/engine-backup-"*.tar.gz.age; do
-            [[ -f "$candidate" ]] || continue
-            engine_file="$candidate"
-        done
-        [[ -n "$engine_file" ]] || die "No engine portable archive found in $value"
-        value="$engine_file"
-    fi
-    local -a engine_args=("--${mode}")
-    [[ "$mode" != latest ]] && engine_args+=("$value")
-    bash "${SCRIPT_DIR}/restore.sh" "${engine_args[@]}" "${passthrough[@]}"
-
+    local -a kits=()
     while IFS=$'\t' read -r name kit_root; do
         [[ -n "${name:-}" ]] || continue
-        local script="${kit_root}/restore.sh"
-        [[ -f "$script" ]] || die "Enabled kit '${name}' has no restore.sh at ${script}"
-        local -a kit_args=("--${mode}")
-        if [[ "$mode" == file ]]; then
+        [[ -f "${kit_root}/restore.sh" ]] || die "Enabled kit '${name}' has no restore.sh at ${kit_root}/restore.sh"
+        kits+=("${name}"$'\t'"${kit_root}")
+    done < <(engine_enabled_services "${ENGINE_YAML}" "${SCRIPT_DIR}")
+
+    local -a engine_args=() kit_sources=()
+    if [[ "$mode" == file ]]; then
+        local engine_file="$value"
+        if [[ -d "$value" ]]; then
+            engine_file=""
+            for candidate in "$value/engine-backup-"*.tar.gz "$value/engine-backup-"*.tar.gz.age; do
+                [[ -f "$candidate" ]] || continue
+                engine_file="$candidate"
+            done
+            [[ -n "$engine_file" ]] || die "No engine portable archive found in $value"
+        fi
+        engine_args=(--file "$engine_file")
+        for kit in "${kits[@]}"; do
+            IFS=$'\t' read -r name kit_root <<<"$kit"
             local kit_file="$value"
             if [[ -d "$value" ]]; then
                 kit_file=""
@@ -74,11 +99,42 @@ main() {
                 done
                 [[ -n "$kit_file" ]] || die "No portable archive for enabled kit '${name}' in ${value}"
             fi
-            kit_args+=("$kit_file")
-        fi
+            kit_sources+=("$kit_file")
+        done
+    else
+        require_command borg
+        local engine_archive run_start run_end
+        IFS=$'\t' read -r engine_archive run_start run_end <<<"$(resolve_engine_run "$mode" "$value")"
+        [[ -n "$engine_archive" ]] || die "Could not resolve the engine archive to restore."
+        info "Restoring workspace backup '${engine_archive}'..."
+        engine_args=(--archive "$engine_archive")
+        for kit in "${kits[@]}"; do
+            IFS=$'\t' read -r name kit_root <<<"$kit"
+            engine_adopt_kit_repo "$name" "$kit_root"
+            local kit_archive
+            kit_archive="$(engine_kit_archive_for_run "$kit_root" "$run_start" "$run_end")" \
+                || die "Could not read the ${name} backup repository."
+            [[ -n "$kit_archive" ]] || \
+                die "Kit '${name}' has no archive from workspace backup '${engine_archive}'; nothing was restored."
+            info "  ${name}: ${kit_archive}"
+            kit_sources+=("$kit_archive")
+        done
+    fi
+
+    bash "${SCRIPT_DIR}/restore.sh" "${engine_args[@]}" "${passthrough[@]}"
+
+    local kit_flag="--archive"
+    [[ "$mode" == file ]] && kit_flag="--file"
+    local i
+    for i in "${!kits[@]}"; do
+        IFS=$'\t' read -r name kit_root <<<"${kits[$i]}"
         info "Restoring kit ${name}..."
-        bash "$script" "${kit_args[@]}" "${passthrough[@]}"
-    done < <(engine_enabled_services "${ENGINE_YAML}" "${SCRIPT_DIR}")
+        engine_run_kit "${kit_root}/restore.sh" "$kit_flag" "${kit_sources[$i]}" "${passthrough[@]}"
+    done
+}
+
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || die "Required command not found: $1"
 }
 
 main "$@"
