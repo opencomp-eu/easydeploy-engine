@@ -38,6 +38,10 @@ EOF
 
 die_usage() { usage >&2; die "$1"; }
 
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || die "Required command not found: $1"
+}
+
 load_plan() {
     PLAN_JSON="$(mktemp)"
     easydeploy_backup_py "${EASYDEPLOY_LIB}/python/backup_plan.py" \
