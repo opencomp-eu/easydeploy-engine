@@ -64,6 +64,9 @@ KIT_CATALOG: tuple[dict[str, Any], ...] = (
 WIZARD_NAME = "wizard.sh"
 APPLY_NAME = "apply.sh"
 DEPLOY_NAME = "deploy.yaml"
+# Exact kit commits for this engine revision. When present, kits are checked out
+# at these commits instead of the tip of their branch.
+KIT_LOCK_NAME = "kits.lock.yaml"
 
 
 def catalog_by_name(name: str) -> dict[str, Any]:
@@ -82,6 +85,48 @@ def normalize_branch(raw: str) -> str:
     if not branch or branch.startswith("-") or ".." in branch or any(ch.isspace() for ch in branch):
         raise ValueError(f"invalid git branch {raw!r}")
     return branch
+
+
+def normalize_commit(raw: str) -> str:
+    commit = (raw or "").strip().lower()
+    if len(commit) != 40 or any(ch not in "0123456789abcdef" for ch in commit):
+        raise ValueError(f"invalid git commit {raw!r} (expected a full 40-character SHA)")
+    return commit
+
+
+def load_kit_commits(engine_root: Path) -> dict[str, str]:
+    path = engine_root / KIT_LOCK_NAME
+    if not path.is_file():
+        return {}
+    kits = load_yaml(path).get("kits") or {}
+    if not isinstance(kits, dict):
+        raise ValueError(f"{path}: kits must be a mapping")
+    known = {kit["name"] for kit in KIT_CATALOG}
+    commits: dict[str, str] = {}
+    for name, raw in kits.items():
+        if name not in known:
+            raise ValueError(f"{path}: unknown kit {name!r}")
+        commits[str(name)] = normalize_commit(str(raw))
+    return commits
+
+
+def pin_kits(engine_root: Path, *, branch: str | None = None) -> dict[str, str]:
+    """Write kits.lock.yaml with the current tip of each catalog kit's branch."""
+    commits: dict[str, str] = {}
+    for kit in KIT_CATALOG:
+        ref = normalize_branch(branch or str(kit.get("branch") or DEFAULT_KIT_BRANCH))
+        result = subprocess.run(
+            ["git", "ls-remote", "--exit-code", str(kit["repo"]), f"refs/heads/{ref}"],
+            capture_output=True,
+            text=True,
+            env=_git_env(),
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "git ls-remote failed").strip()
+            raise RuntimeError(f"cannot resolve {kit['name']} {ref}: {detail}")
+        commits[kit["name"]] = normalize_commit(result.stdout.split()[0])
+    save_yaml(engine_root / KIT_LOCK_NAME, {"kits": commits})
+    return commits
 
 
 def load_kit_branch(engine_root: Path, engine_path: Path | None = None) -> str:
@@ -166,11 +211,13 @@ def emit_wizard_discover(engine_root: Path = PROJECT_ROOT) -> str:
     return "\n".join(lines) + "\n"
 
 
-def clone_kit(repo: str, dest: Path, *, branch: str | None = None) -> str:
+def clone_kit(
+    repo: str, dest: Path, *, branch: str | None = None, commit: str | None = None
+) -> str:
     """Clone or update a kit checkout. Returns 'cloned', 'updated', 'already up to date', or 'exists'."""
     if kit_is_present(dest):
-        if branch:
-            return update_kit(dest, branch=branch)
+        if branch or commit:
+            return update_kit(dest, branch=branch or DEFAULT_KIT_BRANCH, commit=commit)
         return "exists"
     if dest.exists() and any(dest.iterdir()):
         raise FileExistsError(
@@ -182,13 +229,15 @@ def clone_kit(repo: str, dest: Path, *, branch: str | None = None) -> str:
         cmd.extend(["--branch", normalize_branch(branch)])
     cmd.extend([repo, str(dest)])
     subprocess.run(cmd, check=True, env=_git_env())
+    if commit:
+        _checkout_commit(dest, commit)
     if not kit_is_present(dest):
         raise RuntimeError(f"cloned {repo} to {dest} but {WIZARD_NAME} / {APPLY_NAME} are missing")
     return "cloned"
 
 
-def update_kit(dest: Path, *, branch: str) -> str:
-    """Fetch origin and check out branch in an existing kit clone."""
+def update_kit(dest: Path, *, branch: str, commit: str | None = None) -> str:
+    """Fetch origin and check out branch (or the pinned commit) in an existing kit clone."""
     from scripts.progress import git_short_head
 
     branch = normalize_branch(branch)
@@ -196,12 +245,31 @@ def update_kit(dest: Path, *, branch: str) -> str:
         return "exists"
     old_sha = git_short_head(dest)
     _run_git(dest, "fetch", "-q", "origin")
-    _run_git(dest, "checkout", "-q", "-B", branch, f"origin/{branch}")
-    _run_git(dest, "submodule", "update", "--init", "--recursive", "--quiet")
+    if commit:
+        _checkout_commit(dest, commit)
+    else:
+        _run_git(dest, "checkout", "-q", "-B", branch, f"origin/{branch}")
+        _run_git(dest, "submodule", "update", "--init", "--recursive", "--quiet")
     new_sha = git_short_head(dest)
     if old_sha and new_sha and old_sha == new_sha:
         return "already up to date"
     return "updated"
+
+
+def _checkout_commit(dest: Path, commit: str) -> None:
+    commit = normalize_commit(commit)
+    has_commit = subprocess.run(
+        ["git", "-C", str(dest), "cat-file", "-e", f"{commit}^{{commit}}"],
+        capture_output=True,
+        env=_git_env(),
+    )
+    if has_commit.returncode != 0:
+        _run_git(dest, "fetch", "-q", "origin", commit)
+    _run_git(dest, "checkout", "-q", "--detach", commit)
+    _run_git(dest, "submodule", "update", "--init", "--recursive", "--quiet")
+    head = _run_git(dest, "rev-parse", "HEAD").stdout.strip()
+    if head != commit:
+        raise RuntimeError(f"{dest} is at {head}, expected pinned commit {commit}")
 
 
 def _git_env() -> dict[str, str]:
@@ -232,7 +300,8 @@ def clone_named_kit(
     kit = catalog_by_name(name)
     dest = kit_dest(engine_root, kit["dirname"])
     chosen = branch if branch is not None else kit.get("branch") or DEFAULT_KIT_BRANCH
-    return clone_kit(str(kit["repo"]), dest, branch=str(chosen))
+    commit = load_kit_commits(engine_root).get(name)
+    return clone_kit(str(kit["repo"]), dest, branch=str(chosen), commit=commit)
 
 
 def set_proxy_integrate(kit_root: Path) -> bool:
@@ -321,9 +390,22 @@ def main() -> None:
         "--branch",
         help=f"Git branch to clone (default: {DEFAULT_KIT_BRANCH})",
     )
+    parser.add_argument(
+        "--pin-kits",
+        action="store_true",
+        help=f"Write {KIT_LOCK_NAME} with the current tip of each kit branch",
+    )
     parser.add_argument("--path", type=Path, default=DEFAULT_ENGINE_PATH)
     parser.add_argument("--engine-root", type=Path, default=PROJECT_ROOT)
     args = parser.parse_args()
+    if args.pin_kits:
+        try:
+            for name, commit in pin_kits(args.engine_root, branch=args.branch).items():
+                print(f"{name}: {commit}")
+        except (RuntimeError, ValueError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
+        return
     if args.print_discover:
         print(emit_wizard_discover(args.engine_root), end="")
         return

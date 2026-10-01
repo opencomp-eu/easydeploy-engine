@@ -14,6 +14,7 @@ from scripts.config_edit import (
     discover_kits,
     emit_wizard_discover,
     load_kit_branch,
+    load_kit_commits,
     normalize_branch,
     set_proxy_integrate,
     update_from_wizard,
@@ -267,3 +268,63 @@ def test_clone_kit_checks_out_branch(tmp_path: Path):
     dest_main = tmp_path / "main-clone"
     assert clone_kit(str(src), dest_main, branch="main") == "cloned"
     assert (dest_main / "wizard.sh").read_text() == "main\n"
+
+
+def _commit_all(repo: Path, message: str) -> str:
+    import os
+    import subprocess
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "GIT_AUTHOR_NAME": "test",
+            "GIT_AUTHOR_EMAIL": "test@example.test",
+            "GIT_COMMITTER_NAME": "test",
+            "GIT_COMMITTER_EMAIL": "test@example.test",
+        }
+    )
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-m", message], check=True, capture_output=True, env=env
+    )
+    return subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def test_clone_kit_stays_on_pinned_commit_when_branch_moves(tmp_path: Path):
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "wizard.sh").write_text("v1\n")
+    (src / "apply.sh").write_text("x\n")
+    _git_commit(src)
+    import subprocess
+
+    pinned = subprocess.run(
+        ["git", "-C", str(src), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    (src / "wizard.sh").write_text("unreviewed\n")
+    _commit_all(src, "move branch")
+
+    dest = tmp_path / "kit"
+    assert clone_kit(str(src), dest, branch="main", commit=pinned) == "cloned"
+    assert (dest / "wizard.sh").read_text() == "v1\n"
+    assert clone_kit(str(src), dest, branch="main", commit=pinned) == "already up to date"
+    assert (dest / "wizard.sh").read_text() == "v1\n"
+
+
+def test_load_kit_commits_requires_full_sha(tmp_path: Path):
+    (tmp_path / "kits.lock.yaml").write_text(yaml.safe_dump({"kits": {"kanidm": "abc123"}}))
+    with pytest.raises(ValueError, match="40-character"):
+        load_kit_commits(tmp_path)
+
+    (tmp_path / "kits.lock.yaml").write_text(yaml.safe_dump({"kits": {"nope": "a" * 40}}))
+    with pytest.raises(ValueError, match="unknown kit"):
+        load_kit_commits(tmp_path)
+
+    (tmp_path / "kits.lock.yaml").write_text(yaml.safe_dump({"kits": {"kanidm": "A" * 40}}))
+    assert load_kit_commits(tmp_path) == {"kanidm": "a" * 40}
+
+
+def test_load_kit_commits_without_lock_file(tmp_path: Path):
+    assert load_kit_commits(tmp_path) == {}

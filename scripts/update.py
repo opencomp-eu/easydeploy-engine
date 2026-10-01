@@ -13,6 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "easydeploy-lib" / "python"))
 
 from scripts.apply import ApplyResult, apply_engine, ensure_enabled_kits, load_engine, validate_engine  # noqa: E402
+from scripts.config_edit import normalize_commit  # noqa: E402
 from scripts.oidc_wire import resolve_kit_path  # noqa: E402
 from scripts.progress import (  # noqa: E402
     NAME_WIDTH,
@@ -59,9 +60,23 @@ def pull_engine_repo(project_root: Path = PROJECT_ROOT, *, verbose: bool = False
             print("Engine is not a git checkout; skipping git pull.")
         return GitSync(name="engine", status="skipped")
     old_sha = git_short_head(project_root)
-    if verbose:
-        print("Pulling easydeploy-engine…")
-    _run_git(project_root, "pull", "--ff-only", echo=verbose)
+    pinned = os.environ.get("EASYDEPLOY_ENGINE_COMMIT", "").strip()
+    if pinned:
+        commit = normalize_commit(pinned)
+        if verbose:
+            print(f"Checking out pinned easydeploy-engine {commit}…")
+        has_commit = subprocess.run(
+            ["git", "-C", str(project_root), "cat-file", "-e", f"{commit}^{{commit}}"],
+            capture_output=True,
+            env=_git_env(),
+        )
+        if has_commit.returncode != 0:
+            _run_git(project_root, "fetch", "-q", "origin", commit, echo=verbose)
+        _run_git(project_root, "checkout", "-q", "--detach", commit, echo=verbose)
+    else:
+        if verbose:
+            print("Pulling easydeploy-engine…")
+        _run_git(project_root, "pull", "--ff-only", echo=verbose)
     _run_git(
         project_root,
         "submodule",
