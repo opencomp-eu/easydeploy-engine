@@ -29,6 +29,7 @@ from scripts.progress import (
     combined_output,
     kit_apply_failure_message,
     kit_child_env,
+    tail_lines,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -520,6 +521,8 @@ def apply_engine(
     if not force and should_skip_update(spec, skip_pull=skip_pull, verbose=verbose):
         if verbose:
             print(NOTHING_TO_UPDATE)
+        # Caddy is already serving, so a directory a kit left pending can load.
+        reload_stalwart_identity(enabled, verbose=verbose)
         return ApplyResult(kits=tuple(kit_results), caddy="nothing to update")
 
     warn_standalone_caddy_conflicts()
@@ -545,6 +548,7 @@ def apply_engine(
                 "Re-run with more detail: bash update.sh --verbose"
             ) from exc
         raise
+    reload_stalwart_identity(enabled, verbose=verbose)
     record_update_lock(spec)
     if verbose:
         print()
@@ -556,6 +560,48 @@ def apply_engine(
             print(f"  - {name}: {path}")
         print()
     return ApplyResult(kits=tuple(kit_results), caddy="ok")
+
+
+def reload_stalwart_identity(enabled: list[dict], *, verbose: bool = True) -> None:
+    """Ask Stalwart to fetch Kanidm discovery now that Caddy can answer for it.
+
+    The stalwart kit applies before this Caddyfile is loaded, so its OIDC
+    directory cannot be built on a fresh deploy. A failure here only affects
+    webmail SSO, so it is reported without failing the rest of the deploy.
+    The kit keeps its pending marker and the next apply or update retries.
+    """
+    stalwart = next((item for item in enabled if item.get("name") == "stalwart"), None)
+    if stalwart is None:
+        return
+    kit_root = resolve_kit_path(stalwart, PROJECT_ROOT)
+    script = kit_root / "apply.sh"
+    pending = kit_root / ".stalwart-easy-deploy" / "oidc-reload.pending"
+    if not script.is_file() or not pending.is_file():
+        return
+    if verbose:
+        print("Reloading Stalwart identity now that Caddy is up…")
+    result = subprocess.run(
+        ["bash", str(script), "--reload-identity"],
+        cwd=kit_root,
+        capture_output=True,
+        text=True,
+        env=kit_child_env(hostfs.isolated_child_env(), verbose=verbose),
+    )
+    stdout = result.stdout or ""
+    stderr = result.stderr or ""
+    if verbose:
+        if stdout:
+            print(stdout, end="" if stdout.endswith("\n") else "\n")
+        if stderr:
+            print(stderr, end="" if stderr.endswith("\n") else "\n", file=sys.stderr)
+    if result.returncode != 0:
+        detail = "" if verbose else f"\n{tail_lines(combined_output(result))}"
+        print(
+            "Warning: Stalwart could not load the Kanidm OIDC directory, so webmail "
+            "SSO will fail until it does. The next apply or update retries "
+            f"automatically.{detail}",
+            file=sys.stderr,
+        )
 
 
 def reload_caddy(*, verbose: bool = True) -> None:

@@ -262,6 +262,54 @@ def test_apply_result_all_noop():
     assert not mixed.all_noop
 
 
+def test_reload_stalwart_identity_runs_only_when_pending(tmp_path, monkeypatch):
+    import subprocess
+
+    from scripts import apply as engine_apply
+
+    kit = tmp_path / "stalwart-easy-deploy"
+    kit.mkdir()
+    (kit / "apply.sh").write_text("#!/bin/bash\n")
+    pending = kit / ".stalwart-easy-deploy" / "oidc-reload.pending"
+    captured: list[list[str]] = []
+
+    def fake_run(cmd, **_kwargs):
+        captured.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(engine_apply.subprocess, "run", fake_run)
+    service = {"name": "stalwart", "path": str(kit)}
+    engine_apply.reload_stalwart_identity([service], verbose=False)
+    assert captured == []
+    pending.parent.mkdir(parents=True)
+    pending.write_text("pending\n")
+    engine_apply.reload_stalwart_identity([service], verbose=False)
+    assert captured == [["bash", str(kit / "apply.sh"), "--reload-identity"]]
+    engine_apply.reload_stalwart_identity([{"name": "kanidm", "path": str(kit)}], verbose=False)
+    assert len(captured) == 1
+
+
+def test_reload_stalwart_identity_failure_warns_without_failing(tmp_path, monkeypatch, capsys):
+    import subprocess
+
+    from scripts import apply as engine_apply
+
+    kit = tmp_path / "stalwart-easy-deploy"
+    pending = kit / ".stalwart-easy-deploy" / "oidc-reload.pending"
+    pending.parent.mkdir(parents=True)
+    pending.write_text("pending\n")
+    (kit / "apply.sh").write_text("#!/bin/bash\n")
+
+    def fake_run(cmd, **_kwargs):
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="Discovery fetch failed\n")
+
+    monkeypatch.setattr(engine_apply.subprocess, "run", fake_run)
+    engine_apply.reload_stalwart_identity([{"name": "stalwart", "path": str(kit)}], verbose=False)
+    err = capsys.readouterr().err
+    assert "webmail SSO will fail" in err
+    assert "Discovery fetch failed" in err
+
+
 def test_engine_update_spec_lock_path():
     from scripts.apply import STATE_DIR, engine_update_spec
 
