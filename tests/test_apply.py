@@ -262,15 +262,20 @@ def test_apply_result_all_noop():
     assert not mixed.all_noop
 
 
-def test_reload_stalwart_identity_runs_only_when_pending(tmp_path, monkeypatch):
+def _stalwart_kit(tmp_path: Path, *, supports_reload: bool = True) -> Path:
+    kit = tmp_path / "stalwart-easy-deploy"
+    (kit / "scripts").mkdir(parents=True)
+    (kit / "apply.sh").write_text("#!/bin/bash\n")
+    flag = '"--reload-identity"' if supports_reload else '"--unlock-proxy"'
+    (kit / "scripts" / "apply.py").write_text(f"parser.add_argument({flag})\n")
+    return kit
+
+
+def test_reload_stalwart_identity_runs_for_stalwart_kits_that_support_it(tmp_path, monkeypatch):
     import subprocess
 
     from scripts import apply as engine_apply
 
-    kit = tmp_path / "stalwart-easy-deploy"
-    kit.mkdir()
-    (kit / "apply.sh").write_text("#!/bin/bash\n")
-    pending = kit / ".stalwart-easy-deploy" / "oidc-reload.pending"
     captured: list[list[str]] = []
 
     def fake_run(cmd, **_kwargs):
@@ -278,15 +283,27 @@ def test_reload_stalwart_identity_runs_only_when_pending(tmp_path, monkeypatch):
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     monkeypatch.setattr(engine_apply.subprocess, "run", fake_run)
-    service = {"name": "stalwart", "path": str(kit)}
-    engine_apply.reload_stalwart_identity([service], verbose=False)
-    assert captured == []
-    pending.parent.mkdir(parents=True)
-    pending.write_text("pending\n")
-    engine_apply.reload_stalwart_identity([service], verbose=False)
+    kit = _stalwart_kit(tmp_path)
+    engine_apply.reload_stalwart_identity([{"name": "stalwart", "path": str(kit)}], verbose=False)
     assert captured == [["bash", str(kit / "apply.sh"), "--reload-identity"]]
     engine_apply.reload_stalwart_identity([{"name": "kanidm", "path": str(kit)}], verbose=False)
     assert len(captured) == 1
+
+
+def test_reload_stalwart_identity_skips_older_kits(tmp_path, monkeypatch):
+    import subprocess
+
+    from scripts import apply as engine_apply
+
+    captured: list[list[str]] = []
+    monkeypatch.setattr(
+        engine_apply.subprocess,
+        "run",
+        lambda cmd, **_kwargs: captured.append(cmd) or subprocess.CompletedProcess(cmd, 0),
+    )
+    kit = _stalwart_kit(tmp_path / "old", supports_reload=False)
+    engine_apply.reload_stalwart_identity([{"name": "stalwart", "path": str(kit)}], verbose=False)
+    assert captured == []
 
 
 def test_reload_stalwart_identity_failure_warns_without_failing(tmp_path, monkeypatch, capsys):
@@ -294,11 +311,7 @@ def test_reload_stalwart_identity_failure_warns_without_failing(tmp_path, monkey
 
     from scripts import apply as engine_apply
 
-    kit = tmp_path / "stalwart-easy-deploy"
-    pending = kit / ".stalwart-easy-deploy" / "oidc-reload.pending"
-    pending.parent.mkdir(parents=True)
-    pending.write_text("pending\n")
-    (kit / "apply.sh").write_text("#!/bin/bash\n")
+    kit = _stalwart_kit(tmp_path)
 
     def fake_run(cmd, **_kwargs):
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="Discovery fetch failed\n")

@@ -566,20 +566,23 @@ def reload_stalwart_identity(enabled: list[dict], *, verbose: bool = True) -> No
     """Ask Stalwart to fetch Kanidm discovery now that Caddy can answer for it.
 
     The stalwart kit applies before this Caddyfile is loaded, so its OIDC
-    directory cannot be built on a fresh deploy. A failure here only affects
-    webmail SSO, so it is reported without failing the rest of the deploy.
-    The kit keeps its pending marker and the next apply or update retries.
+    directory cannot be built on a fresh deploy. This runs on every apply and
+    update; the kit returns quickly when the directory is already live. A
+    failure only affects webmail SSO, so it is reported without failing the
+    rest of the deploy, and the next apply or update retries.
     """
     stalwart = next((item for item in enabled if item.get("name") == "stalwart"), None)
     if stalwart is None:
         return
     kit_root = resolve_kit_path(stalwart, PROJECT_ROOT)
     script = kit_root / "apply.sh"
-    pending = kit_root / ".stalwart-easy-deploy" / "oidc-reload.pending"
-    if not script.is_file() or not pending.is_file():
+    kit_apply = kit_root / "scripts" / "apply.py"
+    if not script.is_file() or not kit_apply.is_file():
+        return
+    if "--reload-identity" not in kit_apply.read_text(errors="replace"):
         return
     if verbose:
-        print("Reloading Stalwart identity now that Caddy is up…")
+        print("Checking Stalwart's Kanidm directory now that Caddy is up…")
     result = subprocess.run(
         ["bash", str(script), "--reload-identity"],
         cwd=kit_root,
