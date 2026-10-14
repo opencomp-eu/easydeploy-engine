@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -140,6 +141,35 @@ def load_kit_branch(engine_root: Path, engine_path: Path | None = None) -> str:
     return DEFAULT_KIT_BRANCH
 
 
+def set_engine_kit_branch(engine_yaml: Path, branch: str) -> None:
+    """Set engine.kit_branch without rewriting the rest of the operator file."""
+    branch = normalize_branch(branch)
+    if not engine_yaml.is_file():
+        raise FileNotFoundError(
+            f"Missing {engine_yaml.name}. Copy engine.yaml.example to engine.yaml before switching branches."
+        )
+    text = engine_yaml.read_text(encoding="utf-8")
+    rendered = json.dumps(branch)
+    pattern = re.compile(r"^([ \t]*)kit_branch:[ \t]*.*$", re.MULTILINE)
+    if pattern.search(text):
+        updated = pattern.sub(
+            lambda match: f"{match.group(1)}kit_branch: {rendered}",
+            text,
+            count=1,
+        )
+    else:
+        engine_line = re.compile(r"^engine:[ \t]*(?:#.*)?$", re.MULTILINE)
+        match = engine_line.search(text)
+        if match is None:
+            raise ValueError(f"{engine_yaml}: no engine: block to set kit_branch in")
+        insert_at = match.end()
+        if insert_at < len(text) and text[insert_at] == "\n":
+            insert_at += 1
+        updated = text[:insert_at] + f"  kit_branch: {rendered}\n" + text[insert_at:]
+    if updated != text:
+        engine_yaml.write_text(updated, encoding="utf-8")
+
+
 def load_yaml(path: Path) -> dict:
     with path.open() as handle:
         data = yaml.safe_load(handle) or {}
@@ -236,6 +266,51 @@ def clone_kit(
     return "cloned"
 
 
+def prepare_origin_branch(dest: Path, branch: str) -> None:
+    """Fetch origin/<branch>. Refuse when it is missing or the local branch has unpushed commits."""
+    branch = normalize_branch(branch)
+    fetched = subprocess.run(
+        ["git", "-C", str(dest), "fetch", "-q", "origin", branch],
+        capture_output=True,
+        text=True,
+        env=_git_env(),
+    )
+    if fetched.returncode != 0:
+        detail = (fetched.stderr or fetched.stdout or "git fetch failed").strip()
+        if "couldn't find remote ref" in detail:
+            raise RuntimeError(
+                f"{dest.name} has no branch {branch} on origin. "
+                "Push it on this repo before checking it out here."
+            )
+        raise RuntimeError(f"git fetch origin {branch} failed in {dest}:\n{detail}")
+    local = subprocess.run(
+        ["git", "-C", str(dest), "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
+        capture_output=True,
+        env=_git_env(),
+    )
+    if local.returncode == 0:
+        ahead = subprocess.run(
+            ["git", "-C", str(dest), "rev-list", "--count", f"origin/{branch}..{branch}"],
+            capture_output=True,
+            text=True,
+            env=_git_env(),
+            check=True,
+        )
+        count = int((ahead.stdout or "0").strip() or "0")
+        if count:
+            raise RuntimeError(
+                f"{dest.name} branch {branch} is {count} commit(s) ahead of origin/{branch}. "
+                "Push them, or remove them, before updating."
+            )
+
+
+def checkout_origin_branch(dest: Path, branch: str) -> None:
+    """Fetch origin/<branch> and check it out. Refuse to drop commits that are not on origin."""
+    branch = normalize_branch(branch)
+    prepare_origin_branch(dest, branch)
+    _run_git(dest, "checkout", "-q", "-B", branch, f"origin/{branch}")
+
+
 def update_kit(dest: Path, *, branch: str, commit: str | None = None) -> str:
     """Fetch origin and check out branch (or the pinned commit) in an existing kit clone."""
     from scripts.progress import git_short_head
@@ -244,11 +319,11 @@ def update_kit(dest: Path, *, branch: str, commit: str | None = None) -> str:
     if not (dest / ".git").exists():
         return "exists"
     old_sha = git_short_head(dest)
-    _run_git(dest, "fetch", "-q", "origin")
     if commit:
+        _run_git(dest, "fetch", "-q", "origin")
         _checkout_commit(dest, commit)
     else:
-        _run_git(dest, "checkout", "-q", "-B", branch, f"origin/{branch}")
+        checkout_origin_branch(dest, branch)
         _run_git(dest, "submodule", "update", "--init", "--recursive", "--quiet")
     new_sha = git_short_head(dest)
     if old_sha and new_sha and old_sha == new_sha:

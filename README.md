@@ -82,6 +82,22 @@ Later changes: edit `kits/opencloud.yaml` (or `engine.yaml`) and run `bash apply
 
 **Updates:** `bash update.sh` pulls the engine and enabled kit repos, merges new `tag` / `tools_tag` pins from each kit’s `deploy.yaml.example` into your operator YAML (`kits/*.yaml` or kit `deploy.yaml`), then runs each kit’s `update.sh` (and shared Caddy). Each repo keeps `<state_dir>/update.lock` (git SHA, `deploy.yaml` / identity sidecars, image IDs). If nothing changed, the engine prints `Nothing to update` and does not restart containers. Default output is a short summary (git, image pins, apply result, Docker). Use `--verbose` for the full kit/Compose log, `--force` to ignore locks, `--skip-tags` to keep your current image pins, or `--skip-git` when not using git checkouts.
 
+**Try a branch** on a machine that is already deployed:
+
+```bash
+bash update.sh --branch feature/auditing
+```
+
+That checks the branch out on the engine and every enabled kit, stores it as `engine.kit_branch`, and applies. Local edits to tracked files block the switch. `engine.yaml`, kit `deploy.yaml`, and `kits/*.yaml` are left as they are, apart from `kit_branch`. A branch that is missing on any enabled kit, or a checkout with commits that were never pushed, stops the switch before anything moves. Later `bash update.sh` stays on that branch. Return with `bash update.sh --branch master`.
+
+The first time, the `update.sh` already on the server has to be one that understands `--branch`. From `master`, check the engine out once, then run it:
+
+```bash
+git fetch origin
+git checkout feature/auditing
+bash update.sh --branch feature/auditing
+```
+
 `--skip-kits` only reloads Caddy / identity sidecars without touching kit stacks.
 
 If `kits/<name>.yaml` is absent, the kit’s own `deploy.yaml` is used — so you can still keep config in each repo.
@@ -117,6 +133,27 @@ by the same engine backup run, and refuse to start if any kit is missing one.
 `restore-all.sh --file DIR --yes` to restore that set on a fresh host. Use
 `--cold` for a consistent Caddy volume snapshot when the engine is serving
 traffic.
+
+Restoring an engine backup also restores the audit log to that archive. During
+an investigation, export first: `bash audit.sh export --since YYYY-MM-DD -o incident.jsonl`.
+
+## Audit
+
+The engine keeps an audit log on this VPS so an operator can answer, after the
+fact, who read a file, who signed in, and when. It is not part of the Kanidm
+admin UI. Query it over SSH:
+
+```bash
+bash audit.sh query --action file.read --since 2026-09-01
+bash audit.sh query --actor alice --object Contracts/acme.pdf
+bash audit.sh status
+bash audit.sh verify
+```
+
+Audit is on by default (`audit.enabled` in `engine.yaml`). Retention is 365
+days unless you change it. `audit.hold: true` stops deletion during an
+investigation. Details, including what Matrix and Stalwart cannot record, are
+in [docs/audit.md](docs/audit.md).
 
 ## Kit contract
 

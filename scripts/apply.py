@@ -13,6 +13,8 @@ from pathlib import Path
 
 import yaml
 
+from scripts.audit_schedule import reconcile_audit_schedule
+from scripts.audit_wire import audit_settings, wire_audit
 from scripts.embed_wire import wire_embed
 from scripts.oidc_wire import resolve_kit_path, to_bool, wire_identity
 from scripts.config_edit import (
@@ -483,10 +485,13 @@ def apply_engine(
 
     oidc_notes = wire_identity(config, enabled, PROJECT_ROOT)
     embed_notes = wire_embed(config, enabled, PROJECT_ROOT)
+    audit_notes = wire_audit(config, enabled, PROJECT_ROOT)
     if verbose:
         for line in oidc_notes:
             print(line)
         for line in embed_notes:
+            print(line)
+        for line in audit_notes:
             print(line)
 
     kit_results: list[KitRunResult] = []
@@ -713,6 +718,10 @@ def main() -> None:
             sync_kits=args.sync_kits,
         )
         reconcile_backup_schedule()
+        try:
+            print(reconcile_audit_schedule(PROJECT_ROOT, enabled=audit_settings(config)["enabled"]))
+        except (OSError, RuntimeError, ValueError) as exc:
+            print(f"Warning: audit timer was not reconciled ({exc})", file=sys.stderr)
     except UpdateFailed as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(1) from exc

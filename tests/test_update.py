@@ -228,3 +228,143 @@ def test_quiet_update_reports_docker_image_changes(monkeypatch, capsys):
     assert "1 image(s) updated:" in out
     assert "caddy:2" in out
     assert "Update complete." in out
+
+
+def _git_env() -> dict[str, str]:
+    import os
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "GIT_AUTHOR_NAME": "test",
+            "GIT_AUTHOR_EMAIL": "test@example.test",
+            "GIT_COMMITTER_NAME": "test",
+            "GIT_COMMITTER_EMAIL": "test@example.test",
+        }
+    )
+    return env
+
+
+def _git(repo: Path, *args: str) -> str:
+    import subprocess
+
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=_git_env(),
+    )
+    return result.stdout.strip()
+
+
+def _init_repo(repo: Path, filename: str, content: str) -> None:
+    import subprocess
+
+    repo.mkdir(parents=True)
+    subprocess.run(["git", "init", "-b", "master", str(repo)], check=True, capture_output=True)
+    (repo / filename).write_text(content)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "init")
+
+
+def _branch(repo: Path, name: str, filename: str, content: str) -> None:
+    _git(repo, "checkout", "-b", name)
+    (repo / filename).write_text(content)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", name)
+    _git(repo, "checkout", "master")
+
+
+def _engine_yaml(kit_branch: str = "master") -> str:
+    return (
+        "engine:\n"
+        "  network: easydeploy-net\n"
+        "  # keep this comment\n"
+        f"  kit_branch: {kit_branch}\n"
+        "services:\n"
+        "  opencloud:\n"
+        "    enabled: true\n"
+        "    path: ../opencloud-easy-deploy\n"
+        "    fragment: .opencloud-easy-deploy/integration/caddy.caddy\n"
+    )
+
+
+def _deployment(tmp_path: Path, *, kit_branch: str = "feature/auditing"):
+    engine_src = tmp_path / "engine-src"
+    kit_src = tmp_path / "kit-src"
+    _init_repo(engine_src, "README", "master\n")
+    _init_repo(kit_src, "marker", "master\n")
+    _branch(engine_src, kit_branch, "README", "feature\n")
+    _branch(kit_src, kit_branch, "marker", "feature\n")
+    stack = tmp_path / "stack"
+    engine = stack / "easydeploy-engine"
+    kit = stack / "opencloud-easy-deploy"
+    _git(engine_src, "clone", str(engine_src), str(engine))
+    _git(kit_src, "clone", str(kit_src), str(kit))
+    (engine / "engine.yaml").write_text(_engine_yaml())
+    return engine, kit
+
+
+def test_changes_blocking_switch_ignores_operator_yaml(tmp_path: Path):
+    from scripts.update import changes_blocking_switch
+
+    repo = tmp_path / "repo"
+    _init_repo(repo, "README", "v1\n")
+    (repo / "engine.yaml").write_text("engine: {}\n")
+    (repo / "deploy.yaml").write_text("x: 1\n")
+    (repo / "kits").mkdir()
+    (repo / "kits" / "opencloud.yaml").write_text("x: 1\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "config")
+    (repo / "engine.yaml").write_text("engine:\n  kit_branch: master\n")
+    (repo / "deploy.yaml").write_text("x: 2\n")
+    (repo / "kits" / "opencloud.yaml").write_text("x: 2\n")
+    (repo / "README").write_text("dirty\n")
+    assert changes_blocking_switch(repo) == ("README",)
+
+
+def test_switch_deployment_branch_checks_out_engine_and_kit(tmp_path: Path):
+    from scripts.config_edit import load_kit_branch
+    from scripts.update import switch_deployment_branch
+
+    engine, kit = _deployment(tmp_path)
+    (engine / "engine.yaml").write_text(_engine_yaml() + "# operator note\n")
+    switch_deployment_branch(engine, "feature/auditing")
+    assert _git(engine, "branch", "--show-current") == "feature/auditing"
+    assert _git(kit, "branch", "--show-current") == "feature/auditing"
+    assert (engine / "README").read_text() == "feature\n"
+    assert (kit / "marker").read_text() == "feature\n"
+    assert load_kit_branch(engine) == "feature/auditing"
+    assert "# keep this comment" in (engine / "engine.yaml").read_text()
+    assert "# operator note" in (engine / "engine.yaml").read_text()
+
+
+def test_switch_deployment_branch_refuses_local_edits(tmp_path: Path):
+    import pytest
+
+    from scripts.progress import UpdateFailed
+    from scripts.update import switch_deployment_branch
+
+    engine, kit = _deployment(tmp_path)
+    (engine / "README").write_text("local edit\n")
+    with pytest.raises(UpdateFailed, match="easydeploy-engine has local changes"):
+        switch_deployment_branch(engine, "feature/auditing")
+    assert _git(engine, "branch", "--show-current") == "master"
+    assert _git(kit, "branch", "--show-current") == "master"
+
+
+def test_switch_deployment_branch_refuses_missing_kit_branch(tmp_path: Path):
+    import pytest
+
+    from scripts.progress import UpdateFailed
+    from scripts.update import switch_deployment_branch
+
+    engine, kit = _deployment(tmp_path)
+    origin = Path(_git(kit, "remote", "get-url", "origin"))
+    _git(origin, "branch", "-D", "feature/auditing")
+    with pytest.raises(UpdateFailed, match="has no branch feature/auditing"):
+        switch_deployment_branch(engine, "feature/auditing")
+    assert _git(engine, "branch", "--show-current") == "master"
+    assert _git(kit, "branch", "--show-current") == "master"
+    assert "kit_branch: master" in (engine / "engine.yaml").read_text()

@@ -59,6 +59,17 @@ Portable exports are named `<service>-backup-<UTC timestamp>.tar.gz` (or
 `bootstrap-from-backup.sh <engine-archive> --yes`; to restore a complete
 export directory, use `restore-all.sh --file <directory> --yes`.
 
+## Audit
+
+`apply.sh` starts an audit collector for the kits enabled on this host.
+File reads, sign-ins, mail submission and delivery, and chat login or room
+membership are stored under `.easydeploy-engine/audit` and kept for 365 days
+(`audit.retention_days`, `audit.hold`). Ask questions with `bash audit.sh`.
+The log is not shown in the Kanidm admin UI. See [audit.md](audit.md).
+
+A restore of the engine backup rewinds this log to the archive. Export it
+before restoring during an incident.
+
 ## Kanidm on your existing box
 
 If Kanidm already runs in **standalone** mode with `kanidm_caddy`, `bash wizard.sh` in the engine will switch it to integrate and start shared Caddy. Manual equivalent:

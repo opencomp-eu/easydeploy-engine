@@ -229,6 +229,29 @@ def test_load_kit_branch_from_engine_yaml(tmp_path: Path):
     assert DEFAULT_KIT_BRANCH == "master"
 
 
+def test_set_engine_kit_branch_keeps_the_rest_of_the_file(tmp_path: Path):
+    from scripts.config_edit import set_engine_kit_branch
+
+    engine_yaml = tmp_path / "engine.yaml"
+    engine_yaml.write_text(
+        "engine:\n"
+        "  network: easydeploy-net\n"
+        "  # Git branch used when apply.sh clones sibling kits.\n"
+        "  kit_branch: master\n"
+        "\n"
+        "services:\n"
+        "  opencloud:\n"
+        "    enabled: true\n"
+    )
+    set_engine_kit_branch(engine_yaml, "feature/auditing")
+    text = engine_yaml.read_text()
+    assert "kit_branch: \"feature/auditing\"" in text
+    assert "# Git branch used when apply.sh clones sibling kits." in text
+    assert "network: easydeploy-net" in text
+    assert "enabled: true" in text
+    assert load_kit_branch(tmp_path, engine_yaml) == "feature/auditing"
+
+
 def test_clone_kit_checks_out_branch(tmp_path: Path):
     import os
     import subprocess

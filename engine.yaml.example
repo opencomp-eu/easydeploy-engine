@@ -26,6 +26,14 @@ backup:
     keep_monthly: 6
     keep_yearly: 0
 
+# Audit log for this VPS. On by default. Evidence stays on the server.
+# Query with: bash audit.sh query --help
+# See docs/audit.md for what is collected, retention, and what is not.
+audit:
+  enabled: true
+  retention_days: 365
+  # hold: true   # stop deleting events during an investigation
+
 # Same-VPS Kanidm ↔ OpenCloud / Matrix / Stalwart. Sidecars are written into each
 # kit's .*/integration/ directory (operator deploy.yaml is not rewritten).
 # Split VPS / external IdP: set wire: false, or auth.oidc.managed: false on OpenCloud,

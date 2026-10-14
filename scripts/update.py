@@ -13,7 +13,14 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "easydeploy-lib" / "python"))
 
 from scripts.apply import ApplyResult, apply_engine, ensure_enabled_kits, load_engine, validate_engine  # noqa: E402
-from scripts.config_edit import normalize_commit  # noqa: E402
+from scripts.config_edit import (  # noqa: E402
+    catalog_by_name,
+    checkout_origin_branch,
+    normalize_branch,
+    normalize_commit,
+    prepare_origin_branch,
+    set_engine_kit_branch,
+)
 from scripts.oidc_wire import resolve_kit_path  # noqa: E402
 from scripts.progress import (  # noqa: E402
     NAME_WIDTH,
@@ -51,6 +58,138 @@ def _run_git(project_root: Path, *args: str, echo: bool = False) -> subprocess.C
         detail = (result.stderr or result.stdout or "git command failed").strip()
         raise UpdateFailed(git_failure_message("easydeploy-engine", detail))
     return result
+
+
+_OPERATOR_BASENAMES = frozenset({"engine.yaml", "deploy.yaml", "secrets.yaml"})
+
+
+def _operator_path(path: str) -> bool:
+    name = path.rsplit("/", 1)[-1]
+    return name in _OPERATOR_BASENAMES or path == "kits" or path.startswith("kits/")
+
+
+def changes_blocking_switch(repo: Path) -> tuple[str, ...]:
+    """Tracked local edits that a branch switch would risk overwriting.
+
+    Operator config (engine.yaml, kit deploy.yaml, kits/*.yaml) stays put.
+    Untracked files are ignored.
+    """
+    if not (repo / ".git").exists():
+        return ()
+    result = subprocess.run(
+        ["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=no"],
+        capture_output=True,
+        text=True,
+        env=_git_env(),
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "git status failed").strip()
+        raise UpdateFailed(git_failure_message(repo.name, detail))
+    blocked: list[str] = []
+    for line in result.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        target = line[3:].strip().strip('"').split(" -> ")[-1].strip().strip('"')
+        if target and not _operator_path(target):
+            blocked.append(target)
+    return tuple(blocked)
+
+
+def _remote_has_branch(repo_url: str, branch: str) -> bool:
+    result = subprocess.run(
+        ["git", "ls-remote", "--heads", repo_url, branch],
+        capture_output=True,
+        text=True,
+        env=_git_env(),
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "git ls-remote failed").strip()
+        raise UpdateFailed(f"Could not list branches of {repo_url}:\n{detail}")
+    return bool(result.stdout.strip())
+
+
+def switch_deployment_branch(project_root: Path, branch: str) -> None:
+    """Check the branch out on the engine and remember it as engine.kit_branch.
+
+    Enabled kit checkouts are validated here (the branch exists, and switching
+    would not discard local commits or tracked edits). The following update
+    syncs those kits onto the branch.
+    """
+    branch = normalize_branch(branch)
+    if not (project_root / ".git").exists():
+        raise UpdateFailed("easydeploy-engine is not a git checkout, so it cannot switch branches.")
+
+    config = load_engine(project_root / "engine.yaml")
+    enabled = validate_engine(config)
+
+    blocked = changes_blocking_switch(project_root)
+    if blocked:
+        shown = ", ".join(blocked[:8])
+        extra = f", +{len(blocked) - 8} more" if len(blocked) > 8 else ""
+        raise UpdateFailed(
+            f"easydeploy-engine has local changes ({shown}{extra}). "
+            "Commit or stash them before switching branches."
+        )
+
+    kit_checkouts: list[Path] = []
+    try:
+        prepare_origin_branch(project_root, branch)
+    except RuntimeError as exc:
+        raise UpdateFailed(str(exc)) from exc
+    for service in enabled:
+        dest = resolve_kit_path(service, project_root)
+        if dest.exists() and (dest / ".git").exists():
+            kit_blocked = changes_blocking_switch(dest)
+            if kit_blocked:
+                shown = ", ".join(kit_blocked[:8])
+                extra = f", +{len(kit_blocked) - 8} more" if len(kit_blocked) > 8 else ""
+                raise UpdateFailed(
+                    f"{service['name']} has local changes ({shown}{extra}). "
+                    "Commit or stash them before switching branches."
+                )
+            try:
+                prepare_origin_branch(dest, branch)
+            except RuntimeError as exc:
+                raise UpdateFailed(str(exc)) from exc
+            kit_checkouts.append(dest)
+            continue
+        repo_url = str(catalog_by_name(service["name"])["repo"])
+        if not _remote_has_branch(repo_url, branch):
+            raise UpdateFailed(
+                f"{service['name']} has no branch {branch} on origin. "
+                "Push it on that kit before checking it out here."
+            )
+
+    print(f"Switching easydeploy-engine and enabled kits to {branch}", flush=True)
+    checkout_origin_branch(project_root, branch)
+    for dest in kit_checkouts:
+        checkout_origin_branch(dest, branch)
+    set_engine_kit_branch(project_root / "engine.yaml", branch)
+    _run_git(
+        project_root,
+        "submodule",
+        "update",
+        "--init",
+        "--recursive",
+        "--quiet",
+    )
+
+
+def _reexec_update_argv(args: argparse.Namespace) -> list[str]:
+    forwarded = [sys.executable, "-m", "scripts.update"]
+    if args.verbose:
+        forwarded.append("--verbose")
+    if args.skip_tags:
+        forwarded.append("--skip-tags")
+    if args.skip_pull:
+        forwarded.append("--skip-pull")
+    if args.skip_runtime:
+        forwarded.append("--skip-runtime")
+    if args.force:
+        forwarded.append("--force")
+    return forwarded
 
 
 def pull_engine_repo(project_root: Path = PROJECT_ROOT, *, verbose: bool = False) -> GitSync:
@@ -267,8 +406,22 @@ def main() -> None:
         action="store_true",
         help="Ignore update locks and always apply kits and Caddy",
     )
+    parser.add_argument(
+        "--branch",
+        metavar="NAME",
+        help=(
+            "Check out this branch on the engine and every enabled kit, "
+            "store it as engine.kit_branch, then update"
+        ),
+    )
     args = parser.parse_args()
+    if args.branch and args.skip_git:
+        print("Error: --branch cannot be combined with --skip-git", file=sys.stderr)
+        raise SystemExit(2)
     try:
+        if args.branch:
+            switch_deployment_branch(PROJECT_ROOT, args.branch)
+            os.execv(sys.executable, _reexec_update_argv(args))
         update_stack(
             skip_git=args.skip_git,
             skip_tags=args.skip_tags,
