@@ -33,6 +33,56 @@ def _file_read(path: str = "/Alice/Contracts/acme.pdf", when: str = "2026-10-01T
     return event
 
 
+def test_opencloud_file_read_uses_the_person_who_read_it():
+    raw = {
+        "Action": "file_read",
+        "User": "owner-uuid",
+        "Owner": "owner-uuid",
+        "Path": "/owner/notes.txt",
+        "FileID": "file-9",
+        "Message": "user 'reader-uuid' read file 'file-9'",
+        "Time": "2026-10-14T01:00:00Z",
+    }
+    event = parse_opencloud(json.dumps(raw))[0]
+    assert event["actor"] == "reader-uuid"
+    assert event["owner"] == "owner-uuid"
+
+
+def test_username_matches_opencloud_account_id(tmp_path: Path):
+    from scripts.audit_directory import identifiers_for, name_for, users_from_ldif
+
+    users = users_from_ldif(
+        "\n".join(
+            [
+                "dn: uid=owner,ou=users,dc=opencloud,dc=eu",
+                "uid: owner",
+                "mail: owner@example.com",
+                "displayName: Owner",
+                "openCloudUUID: 8bf4f26f-e6a5-4c1a-9c1a-8bf4f26fe6a5",
+                "",
+            ]
+        )
+    )
+    assert users[0]["name"] == "owner"
+    ids = identifiers_for("owner", users)
+    assert "8bf4f26f-e6a5-4c1a-9c1a-8bf4f26fe6a5" in ids
+    assert identifiers_for("owner@idm.example.com", users) == ids
+    root = audit_dir(tmp_path)
+    stored = make_event(
+        source="opencloud",
+        action="file.read",
+        actor="8bf4f26f-e6a5-4c1a-9c1a-8bf4f26fe6a5",
+        owner="8bf4f26f-e6a5-4c1a-9c1a-8bf4f26fe6a5",
+        obj="/owner/notes.txt",
+        ts="2026-10-14T01:00:00Z",
+        ts_source="event",
+    )
+    append_events(root, [stored])
+    found = query_events(root, actor="owner", actor_ids=ids, since="2026-10-10")
+    assert len(found) == 1
+    assert name_for(found[0]["actor"], users) == "owner"
+
+
 def test_opencloud_file_read_redacts_share_token():
     event = _file_read()
     assert event["action"] == "file.read"

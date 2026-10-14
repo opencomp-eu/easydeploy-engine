@@ -45,6 +45,8 @@ _KANIDM_RULES: tuple[tuple[re.Pattern[str], str, str], ...] = (
     (re.compile(r"credential updated|password changed", re.I), "identity.credential_change", "success"),
 )
 
+_EXECUTANT = re.compile(r"^user '([^']+)'")
+
 _OPENCLOUD_KEEP = (
     "Path",
     "OldPath",
@@ -134,11 +136,17 @@ def parse_opencloud(line: str, docker_time: str = "") -> list[dict[str, str]]:
         if value not in (None, "", []):
             detail_bits.append(f"{key}={value}")
     message = str(payload.get("Message") or payload.get("message") or "")
+    executant = ""
+    matched = _EXECUTANT.match(message.strip())
+    if matched:
+        executant = matched.group(1).strip()
     if detail_bits and not message:
         message = " ".join(detail_bits)
     elif detail_bits:
         message = message + " " + " ".join(detail_bits)
     path = str(payload.get("Path") or payload.get("Name") or "")
+    user_field = str(payload.get("User") or payload.get("UserID") or "")
+    file_owner = str(payload.get("Owner") or "")
     return [
         make_event(
             source="opencloud",
@@ -146,11 +154,11 @@ def parse_opencloud(line: str, docker_time: str = "") -> list[dict[str, str]]:
             outcome=outcome,
             ts=ts,
             ts_source=ts_source,
-            actor=str(payload.get("User") or payload.get("UserID") or ""),
+            actor=executant or user_field,
             obj=path,
             object_id=str(payload.get("FileID") or payload.get("ShareID") or payload.get("SpaceID") or ""),
             remote_ip=str(payload.get("RemoteAddr") or ""),
-            owner=str(payload.get("Owner") or ""),
+            owner=file_owner or user_field,
             message=message,
             secrets=secrets,
         )

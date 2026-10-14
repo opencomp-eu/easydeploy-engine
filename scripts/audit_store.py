@@ -338,6 +338,7 @@ def query_events(
     source: str = "",
     action: str = "",
     actor: str = "",
+    actor_ids: tuple[str, ...] = (),
     obj: str = "",
     remote_ip: str = "",
     limit: int = 200,
@@ -360,9 +361,20 @@ def query_events(
         else:
             clauses.append("action = ?")
             args.append(action)
-    if actor:
-        clauses.append("actor LIKE ? ESCAPE '\\'")
-        args.append(_like(actor))
+    if actor or actor_ids:
+        parts: list[str] = []
+        if actor:
+            parts.append("actor LIKE ? ESCAPE '\\'")
+            args.append(_like(actor))
+        distinct_ids = tuple(dict.fromkeys(item for item in actor_ids if item))
+        if distinct_ids:
+            marks = ", ".join("?" for _ in distinct_ids)
+            parts.append(f"actor IN ({marks})")
+            args.extend(distinct_ids)
+            for ident in distinct_ids:
+                parts.append("message LIKE ? ESCAPE '\\'")
+                args.append(_like(ident))
+        clauses.append("(" + " OR ".join(parts) + ")")
     if obj:
         clauses.append(
             "(object LIKE ? ESCAPE '\\' OR object_id LIKE ? ESCAPE '\\' OR message LIKE ? ESCAPE '\\')"

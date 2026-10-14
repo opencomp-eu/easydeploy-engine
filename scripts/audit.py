@@ -19,6 +19,7 @@ from pathlib import Path
 
 import yaml
 
+from scripts.audit_directory import annotate_actors, directory_users, identifiers_for
 from scripts.audit_ingest import ingest_sources
 from scripts.audit_schema import make_event
 from scripts.audit_store import (
@@ -73,18 +74,29 @@ def _record(action: str, message: str) -> None:
     )
 
 
+def _shown(row: dict[str, str]) -> dict[str, str]:
+    """Table view uses the username when the stored actor is an account id."""
+    name = row.get("actor_name") or ""
+    if not name:
+        return row
+    shown = dict(row)
+    shown["actor"] = name
+    return shown
+
+
 def _print_table(rows: list[dict[str, str]]) -> None:
     if not rows:
         print("No audit events matched.")
         return
+    visible = [_shown(row) for row in rows]
     widths = {key: len(key) for key in COLUMNS}
-    for row in rows:
+    for row in visible:
         for key in COLUMNS:
             widths[key] = max(widths[key], len(row.get(key) or ""))
     header = "  ".join(key.ljust(widths[key]) for key in COLUMNS)
     print(header)
     print("  ".join("-" * widths[key] for key in COLUMNS))
-    for row in rows:
+    for row in visible:
         print("  ".join((row.get(key) or "").ljust(widths[key]) for key in COLUMNS))
     print(f"\n{len(rows)} event(s).")
 
@@ -101,8 +113,22 @@ def _filters(args: argparse.Namespace) -> dict[str, str]:
     }
 
 
+def _resolve_actor(actor: str) -> tuple[tuple[str, ...], list[dict], str]:
+    if not actor:
+        return (), [], ""
+    users, warning = directory_users(audit_dir(PROJECT_ROOT))
+    return identifiers_for(actor, users), users, warning
+
+
 def cmd_query(args: argparse.Namespace) -> int:
-    rows = query_events(audit_dir(PROJECT_ROOT), limit=args.limit, **_filters(args))
+    actor_ids, users, warning = _resolve_actor(args.actor or "")
+    if warning:
+        print(f"Warning: {warning}", file=sys.stderr)
+    filters = _filters(args)
+    rows = annotate_actors(
+        query_events(audit_dir(PROJECT_ROOT), limit=args.limit, actor_ids=actor_ids, **filters),
+        users,
+    )
     if args.json:
         for row in rows:
             print(json.dumps(row, ensure_ascii=False))
@@ -114,7 +140,14 @@ def cmd_query(args: argparse.Namespace) -> int:
 
 
 def cmd_export(args: argparse.Namespace) -> int:
-    rows = query_events(audit_dir(PROJECT_ROOT), limit=args.limit, **_filters(args))
+    actor_ids, users, warning = _resolve_actor(args.actor or "")
+    if warning:
+        print(f"Warning: {warning}", file=sys.stderr)
+    filters = _filters(args)
+    rows = annotate_actors(
+        query_events(audit_dir(PROJECT_ROOT), limit=args.limit, actor_ids=actor_ids, **filters),
+        users,
+    )
     text = "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)
     destination = Path(args.output)
     destination.write_text(text, encoding="utf-8")
@@ -157,6 +190,7 @@ def cmd_ingest(_args: argparse.Namespace) -> int:
     if not settings["enabled"]:
         print("Audit is disabled (audit.enabled: false).")
         return 0
+    directory_users(audit_dir(PROJECT_ROOT), refresh=True)
     sources = load_sources(PROJECT_ROOT)
     result = ingest_sources(PROJECT_ROOT, sources)
     for warning in result["warnings"]:
@@ -197,7 +231,10 @@ def build_parser() -> argparse.ArgumentParser:
             "--action",
             help="Exact action (file.read, auth.login) or a prefix (file.*, auth.*)",
         )
-        target.add_argument("--actor", help="User id, Kanidm spn, or Matrix id. Substring.")
+        target.add_argument(
+            "--actor",
+            help="Kanidm username (owner, alice), email, or account id. A username also matches that person's OpenCloud id.",
+        )
         target.add_argument("--object", help="Path, file id, room, or message id. Substring.")
         target.add_argument("--ip", dest="ip", help="Client IP, exact")
         target.add_argument("--limit", type=int, default=default_limit, help="0 means no limit")

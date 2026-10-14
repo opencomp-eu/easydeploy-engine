@@ -8,6 +8,7 @@ It is part of easydeploy-engine, not of the Kanidm admin UI. Creating accounts a
 
 ```bash
 bash audit.sh query --action file.read --since 2026-09-01
+bash audit.sh query --actor alice --since 2026-10-10
 bash audit.sh query --actor alice --object Contracts/acme.pdf
 bash audit.sh query --source kanidm --action auth.failure --since 2026-10-01
 bash audit.sh query --source stalwart --action mail.send --actor alice@example.com
@@ -18,6 +19,8 @@ bash audit.sh status
 ```
 
 Queries and exports are themselves recorded (`audit.query`, `audit.export`), including the SSH user and client address. `file.*` and `auth.*` match a prefix.
+
+`--actor alice` is the Kanidm username. OpenCloud records file access under its own account id (a UUID), not that name. The query reads OpenCloud's user directory and matches the id, the username, and the mail address for that person. The table shows the username. `--json` keeps the stored id in `actor` and adds `actor_name`. Kanidm, Stalwart, and Matrix events already carry the name or address, and those still match.
 
 | Action | Meaning |
 | --- | --- |
