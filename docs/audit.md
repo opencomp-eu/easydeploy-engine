@@ -76,7 +76,7 @@ audit:
   hold: false
 ```
 
-`hold: true` stops deletion. Collection runs about once a minute (`easydeploy-audit.timer`), or on `bash audit.sh ingest`. The collector reads `engine.yaml` on each pass, so a retention or hold change applies within about a minute. Re-apply when you enable or disable audit, so the timer and OpenCloud's audit service follow. Pruning removes whole days older than the window and leaves the hash chain verifiable.
+`hold: true` stops deletion. Collection runs about once a minute (`easydeploy-audit.timer`), or on `bash audit.sh ingest`. The collector reads `engine.yaml` on each pass, so a retention or hold change applies within about a minute. `bash update.sh` and `bash apply.sh` install or remove the timer. Re-apply when you enable or disable audit, so OpenCloud's audit service follows. Pruning removes whole days older than the window and leaves the hash chain verifiable.
 
 Anyone who can run commands as root on the VPS can read and export the log. That is the same trust as SSH to the machine. Do not copy the store to a laptop without a reason; it is personal data (names, file paths, IP addresses).
 

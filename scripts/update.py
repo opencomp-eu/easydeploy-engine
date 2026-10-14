@@ -13,6 +13,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "easydeploy-lib" / "python"))
 
 from scripts.apply import ApplyResult, apply_engine, ensure_enabled_kits, load_engine, validate_engine  # noqa: E402
+from scripts.audit_schedule import reconcile_audit_schedule  # noqa: E402
+from scripts.audit_wire import audit_settings  # noqa: E402
 from scripts.config_edit import (  # noqa: E402
     catalog_by_name,
     checkout_origin_branch,
@@ -430,6 +432,10 @@ def main() -> None:
             verbose=args.verbose,
             force=args.force,
         )
+        try:
+            print(reconcile_audit_schedule(PROJECT_ROOT, enabled=audit_settings(load_engine())["enabled"]))
+        except (OSError, RuntimeError, ValueError) as exc:
+            print(f"Warning: audit timer was not reconciled ({exc})", file=sys.stderr)
     except UpdateFailed as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(1) from exc
