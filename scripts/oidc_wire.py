@@ -45,6 +45,7 @@ STALWART_LDAP_FILTER_LOGIN = (
 STALWART_LDAP_FILTER_MAILBOX = (
     "(&(|(objectclass=account)(objectclass=person))(|(mail=?)(spn=?)))"
 )
+MAIL_USERS_GROUP = "mail-users"
 _LOCAL_IDPS = frozenset({"kanidm"})
 
 
@@ -116,6 +117,13 @@ def ldap_base_dn(domain: str) -> str:
     if not labels:
         raise ValueError("cannot derive LDAP base DN from an empty domain")
     return ",".join(f"dc={label}" for label in labels)
+
+
+def stalwart_mailbox_filter(kanidm_domain: str, group: str = MAIL_USERS_GROUP) -> str:
+    """Only mail-users members are Stalwart mailboxes. Keep in sync with stalwart mailboxes.py."""
+    domain = kanidm_domain.strip().lower().rstrip(".")
+    group_dn = f"spn={group}@{domain},{ldap_base_dn(domain)}"
+    return f"(&(|(objectclass=account)(objectclass=person))(mail=?)(memberof={group_dn}))"
 
 
 def matrix_kanidm_provider_id(kanidm_domain: str, client_id: str = DEFAULT_MATRIX_CLIENT_ID) -> str:
@@ -296,6 +304,8 @@ def build_stalwart_client(
         "landing_url": landing,
         "redirect_uris": list(dict.fromkeys(redirects)),
         "scopes": ["openid", "profile", "email"],
+        # Webmail sign-in materialises a mailbox. Only people whose mail has moved.
+        "scope_group": MAIL_USERS_GROUP,
     }
 
 
@@ -329,7 +339,7 @@ def build_stalwart_identity(
             "allow_invalid_certs": True,
             "use_tls": True,
             "filter_login": STALWART_LDAP_FILTER_LOGIN,
-            "filter_mailbox": STALWART_LDAP_FILTER_MAILBOX,
+            "filter_mailbox": stalwart_mailbox_filter(host),
             "attr_email": "mail",
             "attr_description": "displayname",
             "attr_member_of": "memberof",

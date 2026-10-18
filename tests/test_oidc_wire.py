@@ -297,6 +297,11 @@ def test_wire_stalwart_removes_legacy_client_sidecar(tmp_path: Path):
     assert (clients_dir / "stalwart-webui.yaml").is_file()
 
 
+def test_build_stalwart_client_limits_webmail_to_mail_users():
+    client = build_stalwart_client("mail.example.com", webmail_hostname="webmail.example.com")
+    assert client["scope_group"] == "mail-users"
+
+
 def test_build_stalwart_client_points_at_webmail():
     client = build_stalwart_client("mail.example.com", webmail_hostname="webmail.example.com")
     assert client["client_name"] == "Webmail"
@@ -314,3 +319,6 @@ def test_build_stalwart_identity_filters():
     assert identity["oidc"]["issuer_url"].endswith("/oauth2/openid/stalwart-webui")
     assert "mail=?" in identity["ldap"]["filter_login"]
     assert "spn=?" in identity["ldap"]["filter_login"]
+    assert "memberof=spn=mail-users@idm.example.com,dc=idm,dc=example,dc=com" in identity["ldap"]["filter_mailbox"]
+    client = build_stalwart_client("mail.example.com")
+    assert client["scope_group"] == "mail-users"
