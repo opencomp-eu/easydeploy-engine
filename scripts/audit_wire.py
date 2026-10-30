@@ -7,6 +7,7 @@ receive only a spool directory they can append to.
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,27 @@ AUDIT_HEADER = (
 CONTAINER_DIR = "/var/lib/easydeploy-audit"
 OPENCLOUD_SIDECAR = ".opencloud-easy-deploy/integration/audit.yaml"
 MATRIX_SPOOL_LINK = Path("modules/core/audit-spool")
+
+
+@dataclass(frozen=True)
+class SpoolSidecar:
+    """A kit that writes JSON audit lines into a spool directory named in its sidecar."""
+
+    sidecar: str
+    filename: str
+    kind: str
+    description: str
+
+
+SPOOL_SIDECARS = {
+    "opencloud": SpoolSidecar(OPENCLOUD_SIDECAR, "opencloud.jsonl", "opencloud", "OpenCloud file access"),
+    "nextcloud": SpoolSidecar(
+        ".nextcloud-easy-deploy/integration/audit.yaml",
+        "nextcloud.jsonl",
+        "nextcloud",
+        "Nextcloud logins, files, and shares",
+    ),
+}
 
 CONTAINERS = {
     "kanidm": ("kanidm", "kanidm"),
@@ -116,26 +138,23 @@ def wire_audit(config: dict, enabled: list[dict], project_root: Path) -> list[st
     containers: list[dict[str, str]] = []
     by_name = {service["name"]: service for service in enabled}
 
-    opencloud = by_name.get("opencloud")
-    opencloud_root = _kit_root(opencloud, project_root) if opencloud else None
-    opencloud_sidecar = opencloud_root / OPENCLOUD_SIDECAR if opencloud_root else None
-    if settings["enabled"] and opencloud_root and opencloud_sidecar is not None:
-        spool = _spool(project_root, "opencloud")
+    for name, spec in SPOOL_SIDECARS.items():
+        service = by_name.get(name)
+        kit_root = _kit_root(service, project_root) if service else None
+        if kit_root is None:
+            continue
+        sidecar = kit_root / spec.sidecar
+        if not settings["enabled"]:
+            _remove(sidecar)
+            continue
+        spool = _spool(project_root, name)
         write_sidecar(
-            opencloud_sidecar,
+            sidecar,
             {"enabled": True, "spool_dir": str(spool)},
             header=AUDIT_HEADER,
         )
-        files.append(
-            {
-                "path": str(spool / "opencloud.jsonl"),
-                "kind": "opencloud",
-                "source": "opencloud",
-            }
-        )
-        notes.append(f"Audit: OpenCloud file access -> {spool}")
-    elif opencloud_sidecar is not None:
-        _remove(opencloud_sidecar)
+        files.append({"path": str(spool / spec.filename), "kind": spec.kind, "source": name})
+        notes.append(f"Audit: {spec.description} -> {spool}")
 
     matrix = by_name.get("matrix")
     matrix_root = _kit_root(matrix, project_root) if matrix else None

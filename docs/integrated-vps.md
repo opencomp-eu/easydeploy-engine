@@ -24,6 +24,26 @@
 
 Kanidm is the source of truth. Do not create independent accounts in the applications.
 
+## Deployment paths
+
+One VPS runs one collaboration path (`engine.stack`). Kanidm and Stalwart are shared by both.
+
+- **`opencloud-matrix`** — OpenCloud, Matrix, Stalwart with Bulwark webmail.
+  Apply order: Kanidm, Matrix, OpenCloud, Stalwart.
+- **`nextcloud`** — Nextcloud (Collabora, Talk, Deck, calendar, contacts) and
+  Stalwart without Bulwark. Nextcloud Mail is the webmail: the engine writes a
+  `mail.yaml` sidecar so every Kanidm user whose email is on the Stalwart
+  domain gets a mailbox in Nextcloud Mail with no password prompt.
+  Apply order: Kanidm, Stalwart, Nextcloud.
+
+```
+   Kanidm ──OIDC (user_oidc)──► Nextcloud ──IMAP/SMTP/Sieve (master user)──► Stalwart
+      └────────────LDAP + OIDC directory──────────────────────────────────────┘
+```
+
+Switching path on an existing VPS is not a migration. Stop the old kits, move
+data yourself, then re-run `bash wizard.sh --stack <path>`.
+
 ## Apply order
 
 Preferred: `bash wizard.sh` in **easydeploy-engine**, or non-interactive `engine.yaml` + `kits/*.yaml` + `bash apply.sh`.
@@ -35,9 +55,9 @@ Manual equivalent:
 1. Clone kits as siblings of the engine (or let the engine wizard clone them).
 2. Create `engine.yaml` and enable services.
 3. Configure each enabled kit's `deploy.yaml` (or `kits/<name>.yaml`).
-4. Run `bash apply.sh` in **easydeploy-engine**. It writes identity sidecars,
-   forces integrate mode, applies Kanidm first, applies consumer kits, and
-   finally reloads shared Caddy.
+4. Run `bash apply.sh` in **easydeploy-engine**. It writes identity and mail
+   sidecars, forces integrate mode and the path's kit settings, applies kits in
+   the path's order (Kanidm first), and finally reloads shared Caddy.
 5. After changing domains or adding a service, re-run the engine apply.
 
 ## Backups and restore

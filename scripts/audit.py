@@ -113,8 +113,20 @@ def _filters(args: argparse.Namespace) -> dict[str, str]:
     }
 
 
+def _opencloud_enabled() -> bool:
+    try:
+        services = _engine().get("services") or {}
+    except (FileNotFoundError, ValueError):
+        return True
+    entry = services.get("opencloud") if isinstance(services, dict) else None
+    return isinstance(entry, dict) and bool(entry.get("enabled"))
+
+
 def _resolve_actor(actor: str) -> tuple[tuple[str, ...], list[dict], str]:
     if not actor:
+        return (), [], ""
+    # Only OpenCloud logs account ids instead of usernames.
+    if not _opencloud_enabled():
         return (), [], ""
     users, warning = directory_users(audit_dir(PROJECT_ROOT))
     return identifiers_for(actor, users), users, warning
@@ -226,7 +238,7 @@ def build_parser() -> argparse.ArgumentParser:
     def add_filters(target: argparse.ArgumentParser, *, default_limit: int) -> None:
         target.add_argument("--since", help="UTC date or timestamp, inclusive (YYYY-MM-DD)")
         target.add_argument("--until", help="UTC date or timestamp, inclusive day")
-        target.add_argument("--source", choices=["opencloud", "kanidm", "stalwart", "matrix", "audit"])
+        target.add_argument("--source", choices=["opencloud", "kanidm", "stalwart", "matrix", "nextcloud", "audit"])
         target.add_argument(
             "--action",
             help="Exact action (file.read, auth.login) or a prefix (file.*, auth.*)",

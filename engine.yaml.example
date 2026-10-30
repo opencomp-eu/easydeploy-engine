@@ -6,6 +6,13 @@ engine:
   network: easydeploy-net
   # Git branch used when apply.sh / wizard.sh clones sibling kits.
   kit_branch: master
+  # Collaboration path. Kanidm (sign-in) and Stalwart (mail) run on both.
+  #   opencloud-matrix: OpenCloud, Matrix, and Bulwark webmail
+  #   nextcloud:        Nextcloud with Collabora, Talk, calendar, contacts, and
+  #                     Nextcloud Mail as webmail (Bulwark is turned off)
+  # Unset: nextcloud when services.nextcloud is enabled, else opencloud-matrix.
+  # Enabling a service from the other path is an error.
+  stack: opencloud-matrix
 
 # Engine state and Caddy certificates can be stored in a local or SFTP Borg
 # repository.  The enabled kits keep their own backup repositories/settings.
@@ -34,11 +41,14 @@ audit:
   retention_days: 365
   # hold: true   # stop deleting events during an investigation
 
-# Same-VPS Kanidm ↔ OpenCloud / Matrix / Stalwart. Sidecars are written into each
-# kit's .*/integration/ directory (operator deploy.yaml is not rewritten).
-# Split VPS / external IdP: set wire: false, or auth.oidc.managed: false on OpenCloud,
-# features.sso.managed: false on Matrix, identity.managed: false on Stalwart,
-# or identity.consumers.<app>.domain for a remote client.
+# Same-VPS Kanidm ↔ OpenCloud / Matrix / Stalwart / Nextcloud. Sidecars are written
+# into each kit's .*/integration/ directory (operator deploy.yaml is not rewritten).
+# On the Nextcloud path the engine also points Nextcloud Mail at Stalwart
+# (opt out with mail.managed: false in the Nextcloud deploy.yaml).
+# Split VPS / external IdP: set wire: false, or auth.oidc.managed: false on
+# OpenCloud or Nextcloud, features.sso.managed: false on Matrix,
+# identity.managed: false on Stalwart, or identity.consumers.<app>.domain for a
+# remote client.
 identity:
   wire: auto
 
@@ -54,6 +64,8 @@ identity:
   #   stalwart:
   #     hostname: mail.other-vps.example
   #     mail_domain: other-vps.example
+  #   nextcloud:
+  #     domain: cloud.other-vps.example
 
 services:
   kanidm:
@@ -76,3 +88,8 @@ services:
     path: ../stalwart-easy-deploy
     fragment: .stalwart-easy-deploy/integration/caddy.caddy
     # deploy: kits/stalwart.yaml
+  nextcloud:
+    enabled: false
+    path: ../nextcloud-easy-deploy
+    fragment: .nextcloud-easy-deploy/integration/caddy.caddy
+    # deploy: kits/nextcloud.yaml

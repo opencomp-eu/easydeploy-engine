@@ -11,6 +11,7 @@ clear_parent_python_env
 
 ENGINE_YAML="${SCRIPT_DIR}/engine.yaml"
 KIT_BRANCH="${EASYDEPLOY_KIT_BRANCH:-}"
+STACK="${EASYDEPLOY_STACK:-}"
 
 print_banner() {
 	echo
@@ -20,13 +21,14 @@ print_banner() {
 }
 
 usage() {
-	echo "Usage: bash wizard.sh [--branch <name>]"
+	echo "Usage: bash wizard.sh [--stack opencloud-matrix|nextcloud] [--branch <name>]"
 	echo
-	echo "Clones or updates Kanidm / OpenCloud / Matrix / Stalwart next to the engine (git clone"
-	echo "--recurse-submodules --branch <name>), runs each kit's wizard.sh,"
-	echo "switches them to proxy.mode: integrate, and applies Kanidm → apps →"
-	echo "shared Caddy."
+	echo "Pick a collaboration path, then clone or update its kits next to the engine"
+	echo "(git clone --recurse-submodules --branch <name>), run each kit's wizard.sh,"
+	echo "switch them to proxy.mode: integrate, and apply Kanidm → apps → shared Caddy."
 	echo
+	echo "  --stack    opencloud-matrix: Kanidm, Stalwart + Bulwark, OpenCloud, Matrix"
+	echo "             nextcloud:        Kanidm, Stalwart, Nextcloud (Collabora, Talk, Mail)"
 	echo "  --branch   Git branch to clone (default: master)"
 }
 
@@ -45,11 +47,57 @@ while [[ $# -gt 0 ]]; do
 			KIT_BRANCH="${1#*=}"
 			shift
 			;;
+		--stack)
+			[[ $# -ge 2 ]] || die "--stack requires a value"
+			STACK="$2"
+			shift 2
+			;;
+		--stack=*)
+			STACK="${1#*=}"
+			shift
+			;;
 		*)
 			die "Unknown option: $1"
 			;;
 	esac
 done
+
+# Kits offered on each path, in wizard order (Kanidm first so later wizards can
+# detect a local IdP). Fields: name|label|prompt|default if cloned|default if not.
+# Keep in sync with scripts/stacks.py.
+stack_kits() {
+	case "$1" in
+		opencloud-matrix)
+			printf '%s\n' \
+				"kanidm|Kanidm|Enable Kanidm (identity)?|y|y" \
+				"opencloud|OpenCloud|Enable OpenCloud (files, office)?|y|y" \
+				"matrix|Matrix|Enable Matrix (chat, calls)?|y|n" \
+				"stalwart|Stalwart|Enable Stalwart (mail + Bulwark webmail)?|y|n"
+			;;
+		nextcloud)
+			printf '%s\n' \
+				"kanidm|Kanidm|Enable Kanidm (identity)?|y|y" \
+				"stalwart|Stalwart|Enable Stalwart (mail, read in Nextcloud Mail)?|y|y" \
+				"nextcloud|Nextcloud|Enable Nextcloud (files, Collabora, Talk, calendar, contacts, mail)?|y|y"
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+stack_label() {
+	case "$1" in
+		opencloud-matrix) echo "OpenCloud + Matrix" ;;
+		nextcloud) echo "Nextcloud" ;;
+	esac
+}
+
+# kit_info <name> <FIELD> → value of <NAME>_<FIELD> from --print-discover.
+kit_info() {
+	local var="${1^^}_$2"
+	echo "${!var:-}"
+}
 
 refresh_discover() {
 	eval "$(uv run python -m scripts.config_edit --print-discover --engine-root "${SCRIPT_DIR}")"
@@ -92,6 +140,29 @@ run_kit_wizard() {
 	fi
 }
 
+choose_stack() {
+	if [[ -n "${STACK}" ]]; then
+		stack_kits "${STACK}" >/dev/null || die "Unknown --stack ${STACK} (use opencloud-matrix or nextcloud)."
+		info "Collaboration path: $(stack_label "${STACK}")"
+		return
+	fi
+	echo -e "${BOLD}  Collaboration path${RESET}"
+	echo "  Both paths share Kanidm (sign-in) and Stalwart (mail). Pick the suite on top:"
+	echo "    opencloud-matrix  OpenCloud files + office, Matrix chat, Bulwark webmail"
+	echo "    nextcloud         Nextcloud files, Collabora office, Talk, calendar, contacts, Nextcloud Mail"
+	while true; do
+		ask STACK "Path" "${CURRENT_STACK}"
+		STACK="${STACK,,}"
+		stack_kits "${STACK}" >/dev/null && break
+		warn "Type opencloud-matrix or nextcloud."
+	done
+	if [[ "${STACK}" != "${CURRENT_STACK}" && -f "${ENGINE_YAML}" ]]; then
+		warn "engine.yaml currently runs $(stack_label "${CURRENT_STACK}"). Switching disables its kits here;"
+		warn "stop them first (bash stop.sh) and move data yourself. Nothing is migrated."
+	fi
+	echo
+}
+
 main() {
 	bash "${SCRIPT_DIR}/ensure-dependencies.sh"
 	ensure_docker_group_session "${EASYDEPLOY_INVOKE_ARGS[@]}"
@@ -103,182 +174,131 @@ main() {
 	print_data_dir_hint
 	echo
 	echo "  Kits stay independent — you can still clone and run wizard.sh in"
-	echo "  opencloud-easy-deploy on its own. This wizard is the one-VPS path:"
+	echo "  any kit on its own. This wizard is the one-VPS path:"
 	echo "  clone siblings, run their wizards, share one Caddy."
 	echo
 
-	# KANIDM_FOUND, KANIDM_PATH, KANIDM_REPO, OPENCLOUD_*, MATRIX_*, STALWART_*
+	# CURRENT_STACK, KIT_BRANCH_DEFAULT, and <KIT>_FOUND / _PATH / _HAS_DEPLOY / _REPO per catalog kit.
 	refresh_discover
+	choose_stack
 
-	local enable_kanidm="n" enable_opencloud="n" enable_matrix="n" enable_stalwart="n"
-	local wire_oidc="n" proceed
-	local kanidm_git="" opencloud_git="" matrix_git="" stalwart_git=""
+	local -a rows=() enabled=()
+	mapfile -t rows < <(stack_kits "${STACK}")
 
+	local row name label prompt default_found default_missing answer
 	echo -e "${BOLD}  Services on this VPS${RESET}"
-	if [[ "${KANIDM_FOUND}" == "y" ]]; then
-		if [[ "${KANIDM_HAS_DEPLOY}" != "y" ]]; then
-			info "Found ${KANIDM_PATH} — will run its wizard.sh (no deploy.yaml yet)."
-		fi
-		ask_yn enable_kanidm "Enable Kanidm (identity)?" "y"
-	else
-		info "Kanidm is not cloned (will clone ${KANIDM_REPO})."
-		ask_yn enable_kanidm "Enable Kanidm (identity)?" "y"
-	fi
-	if [[ "${OPENCLOUD_FOUND}" == "y" ]]; then
-		if [[ "${OPENCLOUD_HAS_DEPLOY}" != "y" ]]; then
-			info "Found ${OPENCLOUD_PATH} — will run its wizard.sh (no deploy.yaml yet)."
-		fi
-		ask_yn enable_opencloud "Enable OpenCloud?" "y"
-	else
-		info "OpenCloud is not cloned (will clone ${OPENCLOUD_REPO})."
-		ask_yn enable_opencloud "Enable OpenCloud?" "y"
-	fi
-	if [[ "${MATRIX_FOUND}" == "y" ]]; then
-		if [[ "${MATRIX_HAS_DEPLOY}" != "y" ]]; then
-			info "Found ${MATRIX_PATH} — will run its wizard.sh (no deploy.yaml yet)."
-		fi
-		ask_yn enable_matrix "Enable Matrix?" "y"
-	else
-		info "Matrix is not cloned (will clone ${MATRIX_REPO})."
-		ask_yn enable_matrix "Enable Matrix?" "n"
-	fi
-	if [[ "${STALWART_FOUND}" == "y" ]]; then
-		if [[ "${STALWART_HAS_DEPLOY}" != "y" ]]; then
-			info "Found ${STALWART_PATH} — will run its wizard.sh (no deploy.yaml yet)."
-		fi
-		ask_yn enable_stalwart "Enable Stalwart (mail + Bulwark)?" "y"
-	else
-		info "Stalwart is not cloned (will clone ${STALWART_REPO})."
-		ask_yn enable_stalwart "Enable Stalwart (mail + Bulwark)?" "n"
-	fi
-
-	if [[ "${enable_kanidm}" != "y" && "${enable_opencloud}" != "y" && "${enable_matrix}" != "y" && "${enable_stalwart}" != "y" ]]; then
-		die "Enable at least one service."
-	fi
-
-	if [[ "${enable_kanidm}" == "y" || "${enable_opencloud}" == "y" || "${enable_matrix}" == "y" || "${enable_stalwart}" == "y" ]]; then
-		echo
-		echo -e "${BOLD}  Git clone${RESET}"
-		echo "  Enabled kits are cloned or updated: git fetch + checkout --recurse-submodules."
-		if [[ -z "${KIT_BRANCH}" ]]; then
-			ask KIT_BRANCH "Git branch to clone/update" "${KIT_BRANCH_DEFAULT}"
+	for row in "${rows[@]}"; do
+		IFS='|' read -r name label prompt default_found default_missing <<<"${row}"
+		if [[ "$(kit_info "${name}" FOUND)" == "y" ]]; then
+			if [[ "$(kit_info "${name}" HAS_DEPLOY)" != "y" ]]; then
+				info "Found $(kit_info "${name}" PATH) — will run its wizard.sh (no deploy.yaml yet)."
+			fi
+			ask_yn answer "${prompt}" "${default_found}"
 		else
-			info "Kit branch: ${KIT_BRANCH}"
+			info "${label} is not cloned (will clone $(kit_info "${name}" REPO))."
+			ask_yn answer "${prompt}" "${default_missing}"
 		fi
-		if [[ -z "${KIT_BRANCH}" ]]; then
-			die "Git branch is required when cloning or updating kits."
+		if [[ "${answer}" == "y" ]]; then
+			enabled+=("${name}")
 		fi
-	else
-		KIT_BRANCH="${KIT_BRANCH:-${KIT_BRANCH_DEFAULT}}"
-	fi
+	done
+	[[ ${#enabled[@]} -gt 0 ]] || die "Enable at least one service."
 
-	if [[ "${enable_kanidm}" == "y" && ( "${enable_opencloud}" == "y" || "${enable_matrix}" == "y" || "${enable_stalwart}" == "y" ) ]]; then
+	echo
+	echo -e "${BOLD}  Git clone${RESET}"
+	echo "  Enabled kits are cloned or updated: git fetch + checkout --recurse-submodules."
+	if [[ -z "${KIT_BRANCH}" ]]; then
+		ask KIT_BRANCH "Git branch to clone/update" "${KIT_BRANCH_DEFAULT}"
+	else
+		info "Kit branch: ${KIT_BRANCH}"
+	fi
+	[[ -n "${KIT_BRANCH}" ]] || die "Git branch is required when cloning or updating kits."
+
+	local wire_oidc="n" has_kanidm="n" consumers=()
+	for name in "${enabled[@]}"; do
+		if [[ "${name}" == "kanidm" ]]; then
+			has_kanidm="y"
+		else
+			consumers+=("$(stack_kits "${STACK}" | awk -F'|' -v n="${name}" '$1 == n {print $2}')")
+		fi
+	done
+	if [[ "${has_kanidm}" == "y" && ${#consumers[@]} -gt 0 ]]; then
 		echo
 		echo -e "${BOLD}  Identity${RESET}"
-		local wire_prompt="Wire login through Kanidm (recommended on one VPS)?"
-		if [[ "${enable_opencloud}" == "y" && "${enable_matrix}" == "y" && "${enable_stalwart}" == "y" ]]; then
-			wire_prompt="Wire OpenCloud, Matrix, and Stalwart through Kanidm (recommended on one VPS)?"
-		elif [[ "${enable_opencloud}" == "y" && "${enable_matrix}" == "y" ]]; then
-			wire_prompt="Wire OpenCloud and Matrix login through Kanidm (recommended on one VPS)?"
-		elif [[ "${enable_opencloud}" == "y" ]]; then
-			wire_prompt="Wire OpenCloud login through Kanidm (recommended on one VPS)?"
-		elif [[ "${enable_matrix}" == "y" ]]; then
-			wire_prompt="Wire Matrix login through Kanidm (recommended on one VPS)?"
-		else
-			wire_prompt="Wire Stalwart identity through Kanidm (recommended on one VPS)?"
-		fi
-		ask_yn wire_oidc "${wire_prompt}" "y"
-	fi
-
-	if [[ "${enable_kanidm}" == "y" ]]; then
-		if [[ "${KANIDM_FOUND}" == "y" ]]; then kanidm_git=" (update)"; else kanidm_git=" (clone)"; fi
-	fi
-	if [[ "${enable_opencloud}" == "y" ]]; then
-		if [[ "${OPENCLOUD_FOUND}" == "y" ]]; then opencloud_git=" (update)"; else opencloud_git=" (clone)"; fi
-	fi
-	if [[ "${enable_matrix}" == "y" ]]; then
-		if [[ "${MATRIX_FOUND}" == "y" ]]; then matrix_git=" (update)"; else matrix_git=" (clone)"; fi
-	fi
-	if [[ "${enable_stalwart}" == "y" ]]; then
-		if [[ "${STALWART_FOUND}" == "y" ]]; then stalwart_git=" (update)"; else stalwart_git=" (clone)"; fi
+		local joined
+		joined="$(printf '%s, ' "${consumers[@]}")"
+		ask_yn wire_oidc "Sign in to ${joined%, } through Kanidm (recommended on one VPS)?" "y"
 	fi
 
 	echo
 	echo -e "${BOLD}  Summary${RESET}"
-	echo "  Kanidm:     ${enable_kanidm}${kanidm_git}"
-	echo "  OpenCloud:  ${enable_opencloud}${opencloud_git}"
-	echo "  Matrix:     ${enable_matrix}${matrix_git}"
-	echo "  Stalwart:   ${enable_stalwart}${stalwart_git}"
+	echo "  Path:       $(stack_label "${STACK}")"
+	for row in "${rows[@]}"; do
+		IFS='|' read -r name label _ <<<"${row}"
+		local state="n" git=""
+		if [[ " ${enabled[*]} " == *" ${name} "* ]]; then
+			state="y"
+			if [[ "$(kit_info "${name}" FOUND)" == "y" ]]; then git=" (update)"; else git=" (clone)"; fi
+		fi
+		printf '  %-11s %s%s\n' "${label}:" "${state}" "${git}"
+	done
 	echo "  Identity:   ${wire_oidc}"
-	if [[ "${enable_kanidm}" == "y" || "${enable_opencloud}" == "y" || "${enable_matrix}" == "y" || "${enable_stalwart}" == "y" ]]; then
-		echo "  Git:        --recurse-submodules --branch ${KIT_BRANCH}"
-	fi
+	echo "  Git:        --recurse-submodules --branch ${KIT_BRANCH}"
 	echo
 	echo "  Enabled kits will use proxy.mode: integrate behind shared Caddy."
 	echo
 
+	local proceed
 	ask_yn proceed "Sync kits, run kit wizards, write engine.yaml, and apply?" "y"
 	[[ "${proceed}" == "y" ]] || {
 		info "Cancelled."
 		exit 0
 	}
 
-	if [[ "${enable_kanidm}" == "y" ]]; then
-		clone_kit kanidm Kanidm
-	fi
-	if [[ "${enable_opencloud}" == "y" ]]; then
-		clone_kit opencloud OpenCloud
-	fi
-	if [[ "${enable_matrix}" == "y" ]]; then
-		clone_kit matrix Matrix
-	fi
-	if [[ "${enable_stalwart}" == "y" ]]; then
-		clone_kit stalwart Stalwart
-	fi
+	for row in "${rows[@]}"; do
+		IFS='|' read -r name label _ <<<"${row}"
+		if [[ " ${enabled[*]} " == *" ${name} "* ]]; then
+			clone_kit "${name}" "${label}"
+		fi
+	done
 	refresh_discover
 
-	# Kanidm first so OpenCloud / Matrix / Stalwart wizards can detect a local IdP.
-	if [[ "${enable_kanidm}" == "y" ]]; then
-		run_kit_wizard "${SCRIPT_DIR}/${KANIDM_PATH}" "Kanidm" "${KANIDM_HAS_DEPLOY}"
-		refresh_discover
-		if [[ -f "${SCRIPT_DIR}/${KANIDM_PATH}/deploy.yaml" ]]; then
-			export EASYDEPLOY_KANIDM_DEPLOY="$(cd "${SCRIPT_DIR}/${KANIDM_PATH}" && pwd)/deploy.yaml"
-		fi
-	fi
-	if [[ "${enable_opencloud}" == "y" ]]; then
-		run_kit_wizard "${SCRIPT_DIR}/${OPENCLOUD_PATH}" "OpenCloud" "${OPENCLOUD_HAS_DEPLOY}"
-		refresh_discover
-	fi
-	if [[ "${enable_matrix}" == "y" ]]; then
-		run_kit_wizard "${SCRIPT_DIR}/${MATRIX_PATH}" "Matrix" "${MATRIX_HAS_DEPLOY}"
-		refresh_discover
-	fi
-	if [[ "${enable_stalwart}" == "y" ]]; then
-		run_kit_wizard "${SCRIPT_DIR}/${STALWART_PATH}" "Stalwart" "${STALWART_HAS_DEPLOY}"
-		refresh_discover
+	# On the Nextcloud path, Nextcloud Mail is the webmail; Stalwart skips Bulwark.
+	if [[ "${STACK}" == "nextcloud" ]]; then
+		export EASYDEPLOY_WEBMAIL_PROVIDER="Nextcloud Mail"
+	else
+		unset EASYDEPLOY_WEBMAIL_PROVIDER
 	fi
 
+	for row in "${rows[@]}"; do
+		IFS='|' read -r name label _ <<<"${row}"
+		[[ " ${enabled[*]} " == *" ${name} "* ]] || continue
+		run_kit_wizard "${SCRIPT_DIR}/$(kit_info "${name}" PATH)" "${label}" "$(kit_info "${name}" HAS_DEPLOY)"
+		refresh_discover
+		if [[ "${name}" == "kanidm" && -f "${SCRIPT_DIR}/${KANIDM_PATH}/deploy.yaml" ]]; then
+			export EASYDEPLOY_KANIDM_DEPLOY="$(cd "${SCRIPT_DIR}/${KANIDM_PATH}" && pwd)/deploy.yaml"
+		fi
+		if [[ "${name}" == "stalwart" && -f "${SCRIPT_DIR}/${STALWART_PATH}/deploy.yaml" ]]; then
+			export EASYDEPLOY_STALWART_DEPLOY="$(cd "${SCRIPT_DIR}/${STALWART_PATH}" && pwd)/deploy.yaml"
+		fi
+	done
+
+	local enabled_csv
+	enabled_csv="$(IFS=,; echo "${enabled[*]}")"
 	uv run python - <<PY
 from scripts.config_edit import discover_kits, set_proxy_integrate, update_from_wizard
 from pathlib import Path
 
 root = Path(${SCRIPT_DIR@Q})
 kits = discover_kits(root)
-enabled = []
-if ${enable_kanidm@Q} == "y":
-    enabled.append("kanidm")
-if ${enable_opencloud@Q} == "y":
-    enabled.append("opencloud")
-if ${enable_matrix@Q} == "y":
-    enabled.append("matrix")
-if ${enable_stalwart@Q} == "y":
-    enabled.append("stalwart")
+enabled = [name for name in ${enabled_csv@Q}.split(",") if name]
 
 update_from_wizard(
     enabled=enabled,
     kits=kits,
     wire=${wire_oidc@Q} == "y",
     kit_branch=${KIT_BRANCH@Q} or None,
+    stack=${STACK@Q},
     path=Path(${ENGINE_YAML@Q}),
 )
 for name in enabled:

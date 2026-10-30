@@ -10,7 +10,14 @@ import pytest
 import yaml
 
 from scripts.audit_ingest import drain_docker_log, drain_log_file, ingest_sources
-from scripts.audit_parse import parse_kanidm, parse_mas, parse_opencloud, parse_stalwart, parse_synapse
+from scripts.audit_parse import (
+    parse_kanidm,
+    parse_mas,
+    parse_nextcloud,
+    parse_opencloud,
+    parse_stalwart,
+    parse_synapse,
+)
 from scripts.audit_schedule import reconcile_audit_schedule
 from scripts.audit_schema import make_event
 from scripts.audit_store import append_events, audit_dir, prune, query_events, verify
@@ -290,3 +297,74 @@ def test_timer_units_render_without_systemctl(tmp_path: Path):
     removed = reconcile_audit_schedule(tmp_path, enabled=False, unit_dir=unit_dir, activate=False)
     assert "removed" in removed
     assert not (unit_dir / "easydeploy-audit.service").exists()
+
+
+def _nextcloud_line(message: str, user: str = "alice") -> str:
+    return json.dumps(
+        {
+            "reqId": "abc",
+            "level": 1,
+            "time": "2026-10-30T09:15:00+00:00",
+            "remoteAddr": "203.0.113.9",
+            "user": user,
+            "app": "admin_audit",
+            "method": "POST",
+            "url": "/login",
+            "message": message,
+        }
+    )
+
+
+def test_nextcloud_parser_maps_admin_audit_messages():
+    login = parse_nextcloud(_nextcloud_line('Login successful: "alice"', user="--"))
+    assert login[0]["action"] == "auth.login"
+    assert login[0]["actor"] == "alice"
+    assert login[0]["remote_ip"] == "203.0.113.9"
+    assert login[0]["ts"].startswith("2026-10-30T09:15:00")
+
+    created = parse_nextcloud(_nextcloud_line('File with id "42" created: "/alice/files/Contracts/acme.pdf"'))
+    assert created[0]["action"] == "file.create"
+    assert created[0]["object"] == "/alice/files/Contracts/acme.pdf"
+    assert created[0]["object_id"] == "42"
+
+    legacy = parse_nextcloud(_nextcloud_line('File accessed: "/alice/files/a.txt"'))
+    assert legacy[0]["action"] == "file.read"
+
+    shared = parse_nextcloud(
+        _nextcloud_line('The file "/Contracts/acme.pdf" with ID "42" has been shared via link with permissions "1" (Share ID: 7)')
+    )
+    assert shared[0]["action"] == "share.create"
+    unshared = parse_nextcloud(_nextcloud_line('The file "/Contracts/acme.pdf" with ID "42" has been unshared (Share ID: 7)'))
+    assert unshared[0]["action"] == "share.delete"
+
+
+def test_nextcloud_parser_drops_noise():
+    assert parse_nextcloud(_nextcloud_line("App calendar enabled maybe")) == []
+    assert parse_nextcloud("not json") == []
+
+
+def test_ingest_nextcloud_spool_keeps_file_writable(tmp_path: Path):
+    spool = tmp_path / "spool"
+    spool.mkdir()
+    log = spool / "nextcloud.jsonl"
+    log.write_text(_nextcloud_line('File deleted: "/alice/files/old.txt"') + "\n", encoding="utf-8")
+    log.chmod(0o666)
+    result = ingest_sources(
+        tmp_path,
+        {"files": [{"path": str(log), "kind": "nextcloud", "source": "nextcloud"}], "containers": []},
+    )
+    assert result["counts"]["nextcloud"] == 1
+    assert log.stat().st_mode & 0o777 == 0o666
+    assert query_events(audit_dir(tmp_path), action="file.delete")[0]["actor"] == "alice"
+
+
+def test_wire_audit_nextcloud_sidecar(tmp_path: Path):
+    nextcloud = tmp_path / "nextcloud-easy-deploy"
+    nextcloud.mkdir()
+    enabled = [{"name": "nextcloud", "path": nextcloud, "fragment_rel": "x"}]
+    notes = wire_audit({}, enabled, tmp_path)
+    assert any("Nextcloud" in note for note in notes)
+    sidecar = yaml.safe_load((nextcloud / ".nextcloud-easy-deploy/integration/audit.yaml").read_text())
+    assert Path(sidecar["spool_dir"]).is_dir()
+    sources = load_sources(tmp_path)
+    assert {"path": str(Path(sidecar["spool_dir"]) / "nextcloud.jsonl"), "kind": "nextcloud", "source": "nextcloud"} in sources["files"]

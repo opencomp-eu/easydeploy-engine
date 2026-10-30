@@ -16,9 +16,13 @@ import yaml
 from scripts.audit_schedule import reconcile_audit_schedule
 from scripts.audit_wire import audit_settings, wire_audit
 from scripts.embed_wire import wire_embed
+from scripts.mail_wire import wire_mail
 from scripts.oidc_wire import resolve_kit_path, to_bool, wire_identity
+from scripts import stacks
+from scripts.stacks import Stack, resolve_stack
 from scripts.config_edit import (
     KIT_CATALOG,
+    apply_kit_policy,
     clone_named_kit,
     disable_kit_backup_schedule,
     kit_is_present,
@@ -58,6 +62,7 @@ KNOWN_STANDALONE_CADDY_CONTAINERS = (
     "kanidm_caddy",
     "opencloud_caddy",
     "stalwart_caddy",
+    "nextcloud_caddy",
     "caddy",
 )
 
@@ -151,7 +156,14 @@ def validate_engine(config: dict) -> list[dict]:
     if not enabled:
         raise ValueError("Enable at least one service in engine.yaml")
 
-    return enabled
+    stack = resolve_stack(config, [item["name"] for item in enabled])
+    order = stacks.apply_order([item["name"] for item in enabled], stack)
+    return sorted(enabled, key=lambda item: order.index(item["name"]))
+
+
+def engine_stack(config: dict, enabled: list[dict]) -> Stack:
+    """The deployment path this engine.yaml runs (OpenCloud + Matrix, or Nextcloud)."""
+    return resolve_stack(config, [item["name"] for item in enabled])
 
 
 def resolve_fragment_path(service: dict) -> Path:
@@ -321,11 +333,13 @@ def seed_kit_deploy(
     *,
     verbose: bool = True,
     engine_schedules: bool = False,
+    stack: Stack | None = None,
 ) -> Path:
     """Copy operator YAML into the kit and force proxy.mode: integrate. Returns kit deploy.yaml.
 
     When the engine schedules backups, the kit's own timer is turned off so each
-    kit is backed up once per night, by the engine run.
+    kit is backed up once per night, by the engine run. Settings the deployment
+    path requires (Bulwark off on the Nextcloud path) are enforced last.
     """
     import shutil
 
@@ -352,6 +366,8 @@ def seed_kit_deploy(
         print(f"Set proxy.mode: integrate on {dest}")
     if engine_schedules and disable_kit_backup_schedule(kit_root) and verbose:
         print(f"Disabled the {service['name']} backup timer; the engine's scheduled backup covers it")
+    if stack is not None and apply_kit_policy(kit_root, stack.policy_for(service["name"])) and verbose:
+        print(f"Applied {stack.label} settings to {dest}")
     return dest
 
 
@@ -394,9 +410,10 @@ def run_kit_scripts(
     verbose: bool = True,
     report: bool = False,
 ) -> list[KitRunResult]:
-    """Run a kit script (apply.sh or update.sh). Kanidm first, then others."""
+    """Run a kit script (apply.sh or update.sh) in the deployment path's apply order."""
     extra_args = list(extra_args or [])
-    order = sorted(enabled, key=lambda item: (0 if item["name"] == "kanidm" else 1, item["name"]))
+    names = stacks.apply_order([item["name"] for item in enabled])
+    order = sorted(enabled, key=lambda item: names.index(item["name"]))
     log_dir = STATE_DIR / "logs"
     results: list[KitRunResult] = []
     for service in order:
@@ -473,25 +490,33 @@ def apply_engine(
 ) -> ApplyResult:
     config = load_engine()
     enabled = validate_engine(config)
+    stack = engine_stack(config, enabled)
 
     identity = config.get("identity") or {}
     should_apply_kits = (not skip_kits) and (apply_kits or to_bool(identity.get("apply_kits")))
 
+    if verbose:
+        print(f"Deployment path: {stack.label} ({stack.name})")
     if should_apply_kits:
         ensure_enabled_kits(enabled, project_root=PROJECT_ROOT, sync=sync_kits, verbose=verbose)
         engine_schedules = engine_schedules_backups(config)
         for service in enabled:
-            seed_kit_deploy(service, PROJECT_ROOT, verbose=verbose, engine_schedules=engine_schedules)
+            seed_kit_deploy(
+                service,
+                PROJECT_ROOT,
+                verbose=verbose,
+                engine_schedules=engine_schedules,
+                stack=stack,
+            )
 
-    oidc_notes = wire_identity(config, enabled, PROJECT_ROOT)
-    embed_notes = wire_embed(config, enabled, PROJECT_ROOT)
-    audit_notes = wire_audit(config, enabled, PROJECT_ROOT)
+    notes = [
+        *wire_identity(config, enabled, PROJECT_ROOT),
+        *wire_mail(config, enabled, PROJECT_ROOT),
+        *wire_embed(config, enabled, PROJECT_ROOT),
+        *wire_audit(config, enabled, PROJECT_ROOT),
+    ]
     if verbose:
-        for line in oidc_notes:
-            print(line)
-        for line in embed_notes:
-            print(line)
-        for line in audit_notes:
+        for line in notes:
             print(line)
 
     kit_results: list[KitRunResult] = []

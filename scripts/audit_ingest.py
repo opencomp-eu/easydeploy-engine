@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,7 @@ from scripts.audit_parse import parse_lines, unwrap_docker
 from scripts.audit_store import append_events, audit_dir
 
 CURSOR_NAME = "cursors.json"
+FILE_KINDS = frozenset({"opencloud", "synapse", "nextcloud"})
 
 
 def _cursor_path(root: Path) -> Path:
@@ -50,9 +52,10 @@ def complete_lines(data: bytes) -> tuple[list[str], bytes]:
 def drain_log_file(path: Path) -> list[str]:
     """Read new complete lines and leave only the unconsumed tail in the file.
 
-    OpenCloud opens its audit file for each event, and Synapse's handler
-    reopens when the path changes, so replacing the file with the unread tail
-    does not strand a long-lived writer.
+    OpenCloud and Nextcloud open their audit file for each event, and Synapse's
+    handler reopens when the path changes, so replacing the file with the
+    unread tail does not strand a long-lived writer. The replacement keeps the
+    original mode, so a writer running as another user can still append.
     """
     if not path.is_file():
         return []
@@ -68,6 +71,7 @@ def drain_log_file(path: Path) -> list[str]:
     rest = current[consumed:]
     temporary = path.with_name(path.name + ".tmp")
     temporary.write_bytes(rest)
+    shutil.copymode(path, temporary)
     os.replace(temporary, path)
     return lines
 
@@ -155,7 +159,7 @@ def ingest_sources(project_root: Path, sources: dict[str, Any]) -> dict[str, Any
         path = Path(str(entry.get("path") or ""))
         kind = str(entry.get("kind") or "")
         label = str(entry.get("source") or kind or path.name)
-        if not path.is_file() or kind not in {"opencloud", "synapse"}:
+        if not path.is_file() or kind not in FILE_KINDS:
             continue
         lines = drain_log_file(path)
         written = append_events(root, parse_lines(kind, lines))

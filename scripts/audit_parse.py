@@ -319,12 +319,80 @@ def parse_mas(line: str, docker_time: str = "") -> list[dict[str, str]]:
     ]
 
 
+# Nextcloud admin_audit messages. Newer releases say 'File with id "42" created: "/p"'.
+_NC_FILE_ID = r'(?:\s+with id "(?P<id>[^"]*)")?'
+_NEXTCLOUD_RULES: tuple[tuple[re.Pattern[str], str, str], ...] = (
+    (re.compile(r'^Login successful(?::\s*"(?P<obj>[^"]*)")?', re.I), "auth.login", "success"),
+    (re.compile(r'^(?:Login failed|Failed login)[^"\']*["\'](?P<obj>[^"\']*)', re.I), "auth.failure", "failure"),
+    (re.compile(r"^Logout occurred", re.I), "auth.logout", "success"),
+    (re.compile(rf'^File{_NC_FILE_ID} accessed:?\s*"(?P<obj>[^"]*)"', re.I), "file.read", "success"),
+    (re.compile(rf'^File{_NC_FILE_ID} written to:?\s*"(?P<obj>[^"]*)"', re.I), "file.update", "success"),
+    (re.compile(rf'^File{_NC_FILE_ID} created:?\s*"(?P<obj>[^"]*)"', re.I), "file.create", "success"),
+    (re.compile(rf'^File{_NC_FILE_ID} deleted:?\s*"(?P<obj>[^"]*)"', re.I), "file.delete", "success"),
+    (re.compile(rf'^File{_NC_FILE_ID} renamed(?: from)?:?\s*"(?P<obj>[^"]*)"', re.I), "file.rename", "success"),
+    (re.compile(rf'^File{_NC_FILE_ID} copied(?: from)?:?\s*"(?P<obj>[^"]*)"', re.I), "file.copy", "success"),
+    (
+        re.compile(r'^The \w+ "(?P<obj>[^"]*)" with ID "(?P<id>[^"]*)" has been unshared', re.I),
+        "share.delete",
+        "success",
+    ),
+    (
+        re.compile(r'^The \w+ "(?P<obj>[^"]*)" with ID "(?P<id>[^"]*)" has been shared', re.I),
+        "share.create",
+        "success",
+    ),
+    (re.compile(r'^User created:\s*"(?P<obj>[^"]*)"', re.I), "identity.user_create", "success"),
+    (re.compile(r'^User deleted:\s*"(?P<obj>[^"]*)"', re.I), "identity.user_delete", "success"),
+    (re.compile(r'^Password of user "(?P<obj>[^"]*)" has been changed', re.I), "identity.credential_change", "success"),
+    (re.compile(r'^User "(?P<obj>[^"]*)" added to group', re.I), "identity.group_add", "success"),
+    (re.compile(r'^User "(?P<obj>[^"]*)" removed from group', re.I), "identity.group_remove", "success"),
+)
+
+
+def parse_nextcloud(line: str, docker_time: str = "") -> list[dict[str, str]]:
+    try:
+        payload = json.loads(line)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, dict):
+        return []
+    message = str(payload.get("message") or "").strip()
+    for pattern, action, outcome in _NEXTCLOUD_RULES:
+        matched = pattern.search(message)
+        if matched:
+            break
+    else:
+        return []
+    groups = matched.groupdict()
+    user = str(payload.get("user") or "").strip()
+    if user == "--":
+        user = ""
+    if action.startswith("auth.") and not user:
+        user = str(groups.get("obj") or "")
+    ts, ts_source = _stamp({"time": str(payload.get("time") or "")}, docker_time)
+    return [
+        make_event(
+            source="nextcloud",
+            action=action,
+            outcome=outcome,
+            ts=ts,
+            ts_source=ts_source,
+            actor=user,
+            obj="" if action.startswith("auth.") else str(groups.get("obj") or ""),
+            object_id=str(groups.get("id") or ""),
+            remote_ip=str(payload.get("remoteAddr") or ""),
+            message=redact(message),
+        )
+    ]
+
+
 PARSERS: dict[str, Parser] = {
     "opencloud": parse_opencloud,
     "kanidm": parse_kanidm,
     "stalwart": parse_stalwart,
     "synapse": parse_synapse,
     "mas": parse_mas,
+    "nextcloud": parse_nextcloud,
 }
 
 

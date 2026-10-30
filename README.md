@@ -6,6 +6,19 @@ Each product kit can use `proxy.mode: integrate` to emit a Caddy fragment; this 
 
 Kits stay independent: you can still clone [opencloud-easy-deploy](https://github.com/opencomp-eu/opencloud-easy-deploy) (or Kanidm, or Matrix) and run `bash wizard.sh` on its own. The engine is the **one-VPS** path that clones those repos as siblings and runs their wizards for you.
 
+## Deployment paths
+
+A workspace runs one of two collaboration paths on a shared core. Kanidm (sign-in) and Stalwart (mail) run on both paths.
+
+| Path (`engine.stack`) | Collaboration kits | Webmail | Calendar and contacts |
+|---|---|---|---|
+| `opencloud-matrix` | OpenCloud (files, office), Matrix (chat, calls) | Bulwark | Stalwart (CalDAV, CardDAV) |
+| `nextcloud` | [Nextcloud](https://github.com/opencomp-eu/nextcloud-easy-deploy) with Collabora, Talk, Deck | Nextcloud Mail (IMAP to Stalwart) | Nextcloud |
+
+The wizard asks for the path first. In `engine.yaml`, set `engine.stack`; when it is unset, the engine picks `nextcloud` if `services.nextcloud` is enabled and `opencloud-matrix` otherwise. Enabling a kit from the other path is an error. On the Nextcloud path the engine also turns Bulwark off in the Stalwart kit.
+
+Paths live in [`scripts/stacks.py`](scripts/stacks.py): which kits a path has, their apply order, and the kit settings it enforces. Per-kit wiring lives in adapters under [`scripts/integrations/`](scripts/integrations/): `IdentityConsumer` (sign in through Kanidm) and `MailConsumer` (a webmail client of Stalwart). Retiring a path means deleting its `Stack`, its kits in `KIT_CATALOG`, its adapters, and its row in `wizard.sh`.
+
 ## Identity
 
 [Kanidm](https://kanidm.com/) is the organisation identity source. Users, groups, and authentication live there. Applications do **not** keep their own account databases for normal login.
@@ -23,7 +36,8 @@ Kits stay independent: you can still clone [opencloud-easy-deploy](https://githu
               │         │         │
              OIDC      OIDC      LDAP
               │         │         │
-          OpenCloud   Matrix    Stalwart
+          OpenCloud   Matrix    Stalwart       (opencloud-matrix)
+          Nextcloud ──IMAP──────► Stalwart       (nextcloud)
 ```
 
 See [docs/integrated-vps.md](docs/integrated-vps.md) and [kanidm-easy-deploy/docs/identity.md](../kanidm-easy-deploy/docs/identity.md).
@@ -38,10 +52,11 @@ bash wizard.sh
 
 The wizard can:
 
-1. Clone Kanidm, OpenCloud, Matrix, and/or Stalwart next to this repo (if they are not already there), or **update existing checkouts** to `engine.kit_branch`, with `git clone --recurse-submodules --branch <branch>`.
-2. Run each kit’s `wizard.sh` (domains, admin user, …).
-3. Switch those kits to `proxy.mode: integrate`.
-4. Apply Kanidm then apps, wire OpenCloud and Matrix OIDC plus Stalwart LDAP, and start shared Caddy.
+1. Ask for the deployment path (`opencloud-matrix` or `nextcloud`; or pass `--stack`).
+2. Clone that path's kits next to this repo (if they are not already there), or **update existing checkouts** to `engine.kit_branch`, with `git clone --recurse-submodules --branch <branch>`.
+3. Run each kit’s `wizard.sh` (domains, admin user, …).
+4. Switch those kits to `proxy.mode: integrate`.
+5. Apply Kanidm then apps, wire OIDC, LDAP, and (on the Nextcloud path) Nextcloud Mail to Stalwart, and start shared Caddy.
 
 The clone branch defaults to `master`. Override it with `engine.kit_branch` in `engine.yaml`, `--branch`, or the wizard prompt.
 
@@ -182,7 +197,7 @@ See [engine.yaml.example](engine.yaml.example). Each enabled service needs:
 - `path` — root of the kit checkout
 - `fragment` — relative path to the Caddy snippet (written by that kit’s apply)
 
-### Identity wiring (Kanidm + OpenCloud / Matrix / Stalwart)
+### Identity wiring (Kanidm + OpenCloud / Matrix / Stalwart / Nextcloud)
 
 When Kanidm and an app kit are enabled, `apply.sh` writes integration sidecars so you do **not** have to paste OIDC/LDAP config by hand:
 
@@ -190,6 +205,12 @@ When Kanidm and an app kit are enabled, `apply.sh` writes integration sidecars s
 2. OpenCloud IdP settings → `.opencloud-easy-deploy/integration/oidc-provider.yaml`
 3. Matrix MAS upstream → `.matrix-easy-deploy/integration/oidc-provider.yaml`
 4. Stalwart directory → `.stalwart-easy-deploy/integration/identity-provider.yaml`
+5. Nextcloud `user_oidc` provider → `.nextcloud-easy-deploy/integration/oidc-provider.yaml`
+6. Nextcloud Mail provisioning (Stalwart IMAP, SMTP, Sieve) → `.nextcloud-easy-deploy/integration/mail.yaml`
+
+The Nextcloud client is confidential. Its secret does not exist until Kanidm applies, so the provider sidecar holds a reference to Kanidm's `oidc-secrets.d/nextcloud.yaml`, which the Nextcloud kit reads when it applies. The client also declares a `nextcloud-admins` Kanidm group; Kanidm creates it, adds the first operator account, and maps members to Nextcloud's `admin` group.
+
+Nextcloud Mail signs in to Stalwart as `<mailbox>%<recovery admin>` (Stalwart master-user login), so users never type a mail password. The mail sidecar references Stalwart's recovery admin password in `.stalwart-easy-deploy/secrets.yaml`.
 
 When Stalwart/Bulwark is enabled, apply also writes **embed** sidecars so OpenCloud and Element can load inside Bulwark's inline iframe. Those use `bulwark.domain` from the Stalwart kit (or `identity.consumers.stalwart.webmail` / `embed.frame_ancestors` in `engine.yaml`). The Kanidm sidecar lets that same origin frame the login page, and Stalwart's Caddy adds the Kanidm origin to Bulwark's `frame-src`, so Element's sign-in redirect is not blocked inside the iframe. Each kit can add more origins in `embed.frame_ancestors` or set `embed.managed: false`.
 
@@ -213,7 +234,7 @@ identity:
       mail_domain: other-vps.example
 ```
 
-**Opt out:** `identity.wire: false`, or `auth.oidc.managed: false` / `auth.oidc.provider: keycloak` on OpenCloud, or `features.sso.managed: false` / a non-Kanidm `features.sso.providers` list on Matrix, or `identity.managed: false` on Stalwart.
+**Opt out:** `identity.wire: false`, or `auth.oidc.managed: false` / `auth.oidc.provider: keycloak` on OpenCloud or Nextcloud, or `features.sso.managed: false` / a non-Kanidm `features.sso.providers` list on Matrix, or `identity.managed: false` on Stalwart. `mail.managed: false` on Nextcloud stops the Nextcloud Mail wiring.
 
 ## MVP limits
 

@@ -10,10 +10,13 @@ import re
 import shlex
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from scripts.stacks import DEFAULT_STACK, get_stack, resolve_stack
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_ENGINE_PATH = PROJECT_ROOT / "engine.yaml"
@@ -57,6 +60,15 @@ KIT_CATALOG: tuple[dict[str, Any], ...] = (
         "repo": "https://github.com/opencomp-eu/stalwart-easy-deploy.git",
         "fragment": ".stalwart-easy-deploy/integration/caddy.caddy",
         "label": "Stalwart",
+        "orchestrate": True,
+        "branch": DEFAULT_KIT_BRANCH,
+    },
+    {
+        "name": "nextcloud",
+        "dirname": "nextcloud-easy-deploy",
+        "repo": "https://github.com/opencomp-eu/nextcloud-easy-deploy.git",
+        "fragment": ".nextcloud-easy-deploy/integration/caddy.caddy",
+        "label": "Nextcloud",
         "orchestrate": True,
         "branch": DEFAULT_KIT_BRANCH,
     },
@@ -226,9 +238,26 @@ def discover_kits(engine_root: Path = PROJECT_ROOT) -> list[dict[str, Any]]:
     return [item for item in describe_catalog(engine_root) if item["found"]]
 
 
+def current_stack_name(engine_root: Path = PROJECT_ROOT) -> str:
+    """The deployment path engine.yaml runs today, or the default for a new install."""
+    path = engine_root / "engine.yaml"
+    try:
+        config = load_yaml(path) if path.is_file() else {}
+        services = config.get("services") if isinstance(config.get("services"), dict) else {}
+        enabled = [
+            name for name, entry in services.items() if isinstance(entry, dict) and entry.get("enabled")
+        ]
+        return resolve_stack(config, enabled).name
+    except (OSError, ValueError, yaml.YAMLError):
+        return DEFAULT_STACK
+
+
 def emit_wizard_discover(engine_root: Path = PROJECT_ROOT) -> str:
     """Bash-eval-safe KEY=value lines for wizard.sh (includes uncloned kits)."""
-    lines = [f"KIT_BRANCH_DEFAULT={shlex.quote(load_kit_branch(engine_root))}"]
+    lines = [
+        f"KIT_BRANCH_DEFAULT={shlex.quote(load_kit_branch(engine_root))}",
+        f"CURRENT_STACK={shlex.quote(current_stack_name(engine_root))}",
+    ]
     for item in describe_catalog(engine_root):
         name = item["name"].upper()
         lines.append(f"{name}_FOUND={'y' if item['found'] else 'n'}")
@@ -402,6 +431,34 @@ def set_proxy_integrate(kit_root: Path) -> bool:
     return True
 
 
+def _merge_policy(target: dict, policy: Mapping[str, Any]) -> bool:
+    changed = False
+    for key, wanted in policy.items():
+        if isinstance(wanted, Mapping):
+            current = target.get(key)
+            if not isinstance(current, dict):
+                current = {}
+                target[key] = current
+                changed = True
+            changed = _merge_policy(current, wanted) or changed
+        elif target.get(key) != wanted:
+            target[key] = wanted
+            changed = True
+    return changed
+
+
+def apply_kit_policy(kit_root: Path, policy: Mapping[str, Any]) -> bool:
+    """Enforce a deployment path's deploy.yaml values on a kit. Returns True if changed."""
+    deploy = kit_root / DEPLOY_NAME
+    if not policy or not deploy.is_file():
+        return False
+    data = load_yaml(deploy)
+    if not _merge_policy(data, policy):
+        return False
+    save_yaml(deploy, data)
+    return True
+
+
 def disable_kit_backup_schedule(kit_root: Path) -> bool:
     """Turn off a kit's own backup timer. Returns True if changed."""
     deploy = kit_root / DEPLOY_NAME
@@ -428,6 +485,7 @@ def update_from_wizard(
     path: Path = DEFAULT_ENGINE_PATH,
     example: Path | None = None,
     kit_branch: str | None = None,
+    stack: str | None = None,
 ) -> None:
     config = load_or_init(path, example=example)
     engine = config.get("engine")
@@ -437,6 +495,9 @@ def update_from_wizard(
     engine["network"] = "easydeploy-net"
     if kit_branch:
         engine["kit_branch"] = normalize_branch(kit_branch)
+    if stack:
+        engine["stack"] = get_stack(stack).name
+    resolve_stack(config, enabled)
 
     identity = config.get("identity")
     if not isinstance(identity, dict):
