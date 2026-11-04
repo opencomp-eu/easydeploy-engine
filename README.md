@@ -216,7 +216,14 @@ When Stalwart/Bulwark is enabled, apply also writes **embed** sidecars so OpenCl
 
 Then re-apply Kanidm, then the app kit (the engine wizard does this order for you).
 
-Kanidm OIDC issuers are **per client**: `https://idm.example.com/oauth2/openid/opencloud` and `https://idm.example.com/oauth2/openid/matrix`. Stalwart/Bulwark uses `/oauth2/openid/stalwart-webui` for webmail SSO; IMAP/SMTP clients use a Stalwart app password.
+Kanidm OIDC issuers are **per client**: `https://idm.example.com/oauth2/openid/opencloud` and `https://idm.example.com/oauth2/openid/matrix`. Stalwart/Bulwark uses `/oauth2/openid/stalwart-webui` for webmail SSO; IMAP/SMTP clients use a Stalwart app password. Create one for a Kanidm person with:
+
+```bash
+bash app-password.sh alice
+bash app-password.sh alice --description "iPhone"
+```
+
+The command prints the secret once. Use the person's mail address as the IMAP/SMTP username.
 
 **Same VPS:** kit wizards ask “Use Kanidm on this VPS?” when they find `../kanidm-easy-deploy/deploy.yaml` (the engine wizard auto-accepts).
 

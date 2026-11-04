@@ -121,7 +121,7 @@ Apply order after enabling both (handled by engine `wizard.sh` and `apply.sh`):
 3. Engine applies OpenCloud / Matrix / Stalwart, which consume provider sidecars.
 4. Engine assembles and reloads shared Caddy.
 
-Kanidm OIDC issuers are per client, for example `https://idm.example.com/oauth2/openid/opencloud`. Stalwart selects the Kanidm OIDC directory (`stalwart-webui`) so Bulwark can SSO. IMAP/SMTP password binds are rejected by that directory; use a Stalwart app password for Thunderbird or phones. Set `identity.auth_directory: ldap` on the Stalwart kit to keep Kanidm-password login instead. The portal **Webmail** tile lands on Bulwark.
+Kanidm OIDC issuers are per client, for example `https://idm.example.com/oauth2/openid/opencloud`. Stalwart selects the Kanidm OIDC directory (`stalwart-webui`) so Bulwark can SSO. IMAP/SMTP password binds are rejected by that directory; use a Stalwart app password for Thunderbird or phones (`bash app-password.sh <kanidm-username>` in the engine). Set `identity.auth_directory: ldap` on the Stalwart kit to keep Kanidm-password login instead. The portal **Webmail** tile lands on Bulwark.
 
 **Same VPS, no YAML client block:** kit wizards ask “Use Kanidm on this VPS?” when they find `../kanidm-easy-deploy/deploy.yaml`.
 
