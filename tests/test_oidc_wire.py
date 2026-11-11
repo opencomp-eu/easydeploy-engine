@@ -322,3 +322,6 @@ def test_build_stalwart_identity_filters():
     assert "memberof=spn=mail-users@idm.example.com,dc=idm,dc=example,dc=com" in identity["ldap"]["filter_mailbox"]
     client = build_stalwart_client("mail.example.com")
     assert client["scope_group"] == "mail-users"
+    assert "https://mail.example.com/admin/oauth/callback" in client["redirect_uris"]
+    assert "https://mail.example.com/account/oauth/callback" in client["redirect_uris"]
+    assert "https://mail.example.com/admin/login" in client["redirect_uris"]

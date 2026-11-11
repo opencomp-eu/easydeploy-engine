@@ -64,14 +64,20 @@ def build_stalwart_client(
     mail = f"https://{mail_hostname.rstrip('/')}"
     webmail = f"https://{webmail_hostname.rstrip('/')}" if webmail_hostname.strip() else ""
     landing = webmail or mail
+    # WebUI 1.x (the bundle Stalwart 0.16 serves) sends the browser to
+    # {mount}/oauth/callback and back to {mount}/login. The mount is /admin
+    # for the server console and /account for the user portal.
     redirects = [
         f"{landing}/",
         f"{landing}/login",
         f"{mail}/",
         f"{mail}/login",
+        f"{mail}/admin",
+        f"{mail}/admin/login",
+        f"{mail}/admin/oauth/callback",
+        f"{mail}/account/login",
         f"{mail}/account/oauth/callback",
         f"{mail}/auth/oidc/callback",
-        f"{mail}/admin",
     ]
     if webmail:
         redirects.extend(
