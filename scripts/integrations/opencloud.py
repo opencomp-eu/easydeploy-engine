@@ -51,6 +51,9 @@ def build_opencloud_client(
                 ],
             }
         ],
+        # Kanidm creates these groups; the operator who ran the wizard can use and run OpenCloud.
+        "groups": ["opencloud-admin", "opencloud-user", "opencloud-guest"],
+        "operator_groups": ["opencloud-admin", "opencloud-user"],
     }
 
 

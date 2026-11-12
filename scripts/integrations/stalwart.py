@@ -96,6 +96,9 @@ def build_stalwart_client(
         "scopes": ["openid", "profile", "email"],
         # Webmail sign-in materialises a mailbox. Only people whose mail has moved.
         "scope_group": MAIL_USERS_GROUP,
+        # Kanidm creates the group; the operator who ran the wizard gets a mailbox.
+        "groups": [MAIL_USERS_GROUP],
+        "operator_groups": [MAIL_USERS_GROUP],
     }
 
 
