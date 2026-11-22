@@ -86,6 +86,10 @@ held-back updates. Renovate opens pull requests from then on.
   - `easydeploy-lib` submodule bumps
 - **Never proposed:** Postgres major versions. A new major needs a dump and
   restore, not a tag bump.
+- **How many at once:** at most 10 open Renovate pull requests per repository.
+  There is no hourly cap, because the workflow itself only runs once an hour.
+  Ticking a box on the Dependency Dashboard takes effect on the next run, or
+  start one from **Actions → Renovate → Run workflow**.
 - **Branch protection:** a rule that requires approving reviews on `master`
   blocks automerge. Required status checks are fine.
 

@@ -9,6 +9,7 @@
   "internalChecksFilter": "strict",
   "separateMultipleMajor": true,
   "platformAutomerge": false,
+  "prHourlyLimit": 0,
   "prConcurrentLimit": 10,
   "osvVulnerabilityAlerts": true,
   "vulnerabilityAlerts": {
