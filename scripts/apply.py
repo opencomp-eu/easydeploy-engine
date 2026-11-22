@@ -14,6 +14,7 @@ from pathlib import Path
 import yaml
 
 from scripts.audit_schedule import reconcile_audit_schedule
+from scripts.auto_update import auto_update_settings, reconcile_update_schedule
 from scripts.audit_wire import audit_settings, wire_audit
 from scripts.embed_wire import wire_embed
 from scripts.mail_wire import wire_mail
@@ -747,6 +748,10 @@ def main() -> None:
             print(reconcile_audit_schedule(PROJECT_ROOT, enabled=audit_settings(config)["enabled"]))
         except (OSError, RuntimeError, ValueError) as exc:
             print(f"Warning: audit timer was not reconciled ({exc})", file=sys.stderr)
+        try:
+            print(reconcile_update_schedule(PROJECT_ROOT, auto_update_settings(config)))
+        except (OSError, RuntimeError, ValueError, KeyError, subprocess.CalledProcessError) as exc:
+            print(f"Warning: auto-update timer was not reconciled ({exc})", file=sys.stderr)
     except UpdateFailed as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(1) from exc

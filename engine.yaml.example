@@ -33,6 +33,18 @@ backup:
     keep_monthly: 6
     keep_yearly: 0
 
+# Nightly unattended updates. On by default, so security fixes reach this
+# server without anyone logging in. A systemd timer (easydeploy-update.timer)
+# runs `bash update.sh --unattended`: it pulls the engine and kits, merges new
+# image pins, pulls images (floating tags such as caddy:2-alpine pick up
+# rebuilt base images), and restarts only what changed. It waits for the
+# nightly backup and for any other engine run, and writes the outcome to
+# .easydeploy-engine/auto-update.json. Logs: journalctl -u easydeploy-update
+auto_update:
+  enabled: true
+  calendar: "*-*-* 04:00:00"     # systemd OnCalendar; after the 03:00 backup
+  randomized_delay: 30min        # spread servers so registries are not hit at once
+
 # Audit log for this VPS. On by default. Evidence stays on the server.
 # Query with: bash audit.sh query --help
 # See docs/audit.md for what is collected, retention, and what is not.

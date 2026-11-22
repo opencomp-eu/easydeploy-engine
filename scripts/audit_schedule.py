@@ -2,17 +2,12 @@
 
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
 from pathlib import Path
+
+from scripts.systemd_units import install_timer, remove_timer, should_activate, systemd_unit_dir
 
 
 UNIT_NAME = "easydeploy-audit"
-
-
-def systemd_unit_dir() -> Path:
-    return Path(os.environ.get("EASYDEPLOY_SYSTEMD_UNIT_DIR", "/etc/systemd/system"))
 
 
 def render_service(project_root: Path) -> str:
@@ -52,45 +47,6 @@ def render_timer() -> str:
     )
 
 
-def _systemd_available() -> bool:
-    if not Path("/run/systemd/system").exists():
-        return False
-    result = subprocess.run(["systemctl", "--version"], capture_output=True, text=True, check=False)
-    return result.returncode == 0
-
-
-def _needs_sudo(unit_dir: Path) -> bool:
-    if os.geteuid() == 0:
-        return False
-    if unit_dir.exists():
-        return not os.access(unit_dir, os.W_OK)
-    return not os.access(unit_dir.parent, os.W_OK)
-
-
-def _write(path: Path, content: str, *, sudo: bool) -> None:
-    if not sudo:
-        if path.exists() and path.read_text(encoding="utf-8") == content:
-            return
-        path.write_text(content, encoding="utf-8")
-        return
-    import tempfile
-
-    with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as temporary:
-        temporary.write(content)
-        source = Path(temporary.name)
-    try:
-        subprocess.run(["sudo", "install", "-m", "0644", str(source), str(path)], check=True)
-    finally:
-        source.unlink(missing_ok=True)
-
-
-def _systemctl(args: list[str], *, sudo: bool, check: bool) -> None:
-    command = ["systemctl", *args]
-    if sudo:
-        command.insert(0, "sudo")
-    subprocess.run(command, check=check)
-
-
 def reconcile_audit_schedule(
     project_root: Path,
     *,
@@ -105,47 +61,22 @@ def reconcile_audit_schedule(
     """
     unit_dir = unit_dir or systemd_unit_dir()
     if activate is None:
-        activate = unit_dir == systemd_unit_dir() and "EASYDEPLOY_SYSTEMD_UNIT_DIR" not in os.environ
-    service = unit_dir / f"{UNIT_NAME}.service"
-    timer = unit_dir / f"{UNIT_NAME}.timer"
-    sudo = _needs_sudo(unit_dir)
+        activate = should_activate(unit_dir)
 
     if enabled:
-        unit_dir.mkdir(parents=True, exist_ok=True)
-        _write(service, render_service(project_root), sudo=sudo)
-        _write(timer, render_timer(), sudo=sudo)
-        if not activate:
-            return "Audit timer unit files written."
-        if not _systemd_available():
-            return "Audit timer not started: systemd is not available. Run bash audit.sh ingest from cron."
-        try:
-            _systemctl(["daemon-reload"], sudo=sudo, check=True)
-            _systemctl(["enable", "--now", f"{UNIT_NAME}.timer"], sudo=sudo, check=True)
-        except (OSError, subprocess.CalledProcessError) as exc:
-            print(f"Warning: audit timer was not enabled ({exc})", file=sys.stderr)
-            return "Audit timer unit files written; enable failed."
-        return "Audit timer enabled (ingest about once a minute)."
+        outcome = install_timer(
+            UNIT_NAME,
+            render_service(project_root),
+            render_timer(),
+            unit_dir=unit_dir,
+            activate=activate,
+        )
+        return {
+            "written": "Audit timer unit files written.",
+            "no-systemd": "Audit timer not started: systemd is not available. Run bash audit.sh ingest from cron.",
+            "enable-failed": "Audit timer unit files written; enable failed.",
+        }.get(outcome, "Audit timer enabled (ingest about once a minute).")
 
-    if not service.exists() and not timer.exists():
+    if not remove_timer(UNIT_NAME, unit_dir=unit_dir, activate=activate):
         return "Audit timer not configured."
-    if activate and _systemd_available():
-        try:
-            _systemctl(["disable", "--now", f"{UNIT_NAME}.timer"], sudo=sudo, check=False)
-        except OSError:
-            pass
-    if service.exists():
-        if sudo:
-            subprocess.run(["sudo", "rm", "-f", str(service)], check=False)
-        else:
-            service.unlink()
-    if timer.exists():
-        if sudo:
-            subprocess.run(["sudo", "rm", "-f", str(timer)], check=False)
-        else:
-            timer.unlink()
-    if activate and _systemd_available():
-        try:
-            _systemctl(["daemon-reload"], sudo=sudo, check=False)
-        except OSError:
-            pass
     return "Audit timer removed."

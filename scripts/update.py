@@ -7,12 +7,24 @@ import argparse
 import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "easydeploy-lib" / "python"))
 
-from scripts.apply import ApplyResult, apply_engine, ensure_enabled_kits, load_engine, validate_engine  # noqa: E402
+from scripts.apply import STATE_DIR, ApplyResult, apply_engine, ensure_enabled_kits, load_engine, validate_engine  # noqa: E402
+from scripts.auto_update import (  # noqa: E402
+    EXIT_SKIPPED,
+    LockBusy,
+    auto_update_settings,
+    detached_engine_commit,
+    engine_run_lock,
+    prune_dangling_images,
+    reconcile_update_schedule,
+    wait_for_backup,
+    write_status,
+)
 from scripts.audit_schedule import reconcile_audit_schedule  # noqa: E402
 from scripts.audit_wire import audit_settings  # noqa: E402
 from scripts.config_edit import (  # noqa: E402
@@ -377,6 +389,84 @@ def update_stack(
     print("Update complete.")
 
 
+def reconcile_timers(project_root: Path = PROJECT_ROOT) -> None:
+    """Audit and auto-update timers follow engine.yaml after every update."""
+    try:
+        config = load_engine()
+        print(reconcile_audit_schedule(project_root, enabled=audit_settings(config)["enabled"]))
+    except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
+        print(f"Warning: audit timer was not reconciled ({exc})", file=sys.stderr)
+    try:
+        print(reconcile_update_schedule(project_root, auto_update_settings(load_engine())))
+    except (OSError, RuntimeError, ValueError, KeyError) as exc:
+        print(f"Warning: auto-update timer was not reconciled ({exc})", file=sys.stderr)
+
+
+def _backup_unit(project_root: Path) -> str | None:
+    """The engine backup timer's unit name when scheduled backups are on."""
+    try:
+        config = load_engine()
+        backup = config.get("backup") or {}
+        if not (backup.get("enabled") and (backup.get("schedule") or {}).get("enabled")):
+            return None
+        from backup_plan import load_plan
+
+        return str(load_plan(project_root)["timer_name"])
+    except Exception:  # noqa: BLE001 - a missing plan only means there is nothing to wait for
+        return None
+
+
+def run_unattended(project_root: Path = PROJECT_ROOT) -> int:
+    """The nightly run behind easydeploy-update.timer."""
+    started = datetime.now(timezone.utc)
+    print(f"Unattended update started {started.isoformat(timespec='seconds')}", flush=True)
+    try:
+        settings = auto_update_settings(load_engine())
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        write_status(STATE_DIR, started=started, outcome="failed", detail=str(exc))
+        return 1
+    if not settings["enabled"]:
+        print("Automatic updates are off (auto_update.enabled: false in engine.yaml).")
+        return 0
+
+    try:
+        with engine_run_lock():
+            wait_for_backup(_backup_unit(project_root))
+            pinned = detached_engine_commit(project_root)
+            if pinned and not os.environ.get("EASYDEPLOY_ENGINE_COMMIT", "").strip():
+                print(
+                    f"easydeploy-engine is pinned at {pinned[:12]}; keeping it there "
+                    "and updating kits and images.",
+                    flush=True,
+                )
+                os.environ["EASYDEPLOY_ENGINE_COMMIT"] = pinned
+            update_stack(verbose=True)
+            prune_dangling_images()
+            reconcile_timers(project_root)
+    except LockBusy as exc:
+        print(str(exc), file=sys.stderr)
+        write_status(STATE_DIR, started=started, outcome="skipped", detail=str(exc))
+        return EXIT_SKIPPED
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else 1
+        if code == 0:
+            write_status(STATE_DIR, started=started, outcome="ok")
+            return 0
+        detail = f"A kit update exited with status {code}; see journalctl -u easydeploy-update."
+        print(detail, file=sys.stderr)
+        write_status(STATE_DIR, started=started, outcome="failed", detail=detail)
+        return code
+    except Exception as exc:  # noqa: BLE001 - every failure must reach the status file
+        detail = str(exc) or exc.__class__.__name__
+        print(f"Error: {detail}", file=sys.stderr)
+        write_status(STATE_DIR, started=started, outcome="failed", detail=detail)
+        return 1
+    write_status(STATE_DIR, started=started, outcome="ok")
+    print("Unattended update complete.")
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Update easydeploy-engine: git pull, sync kit tags, pull images, apply",
@@ -416,7 +506,21 @@ def main() -> None:
             "store it as engine.kit_branch, then update"
         ),
     )
+    parser.add_argument(
+        "--unattended",
+        action="store_true",
+        help=(
+            "Nightly mode used by easydeploy-update.timer: honour auto_update in engine.yaml, "
+            "wait for other engine runs and the backup, keep a pinned engine commit, "
+            "and record the result in .easydeploy-engine/auto-update.json"
+        ),
+    )
     args = parser.parse_args()
+    if args.unattended:
+        if any((args.branch, args.skip_git, args.skip_tags, args.skip_pull, args.skip_runtime, args.force, args.verbose)):
+            print("Error: --unattended takes no other options", file=sys.stderr)
+            raise SystemExit(2)
+        raise SystemExit(run_unattended())
     if args.branch and args.skip_git:
         print("Error: --branch cannot be combined with --skip-git", file=sys.stderr)
         raise SystemExit(2)
@@ -432,10 +536,7 @@ def main() -> None:
             verbose=args.verbose,
             force=args.force,
         )
-        try:
-            print(reconcile_audit_schedule(PROJECT_ROOT, enabled=audit_settings(load_engine())["enabled"]))
-        except (OSError, RuntimeError, ValueError) as exc:
-            print(f"Warning: audit timer was not reconciled ({exc})", file=sys.stderr)
+        reconcile_timers()
     except UpdateFailed as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(1) from exc

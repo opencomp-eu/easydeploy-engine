@@ -1,0 +1,104 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Shared Renovate preset for easydeploy-engine and its kits. Kits extend it with local>opencomp-eu/easydeploy-engine//renovate/easydeploy. Merged updates reach every server on its next nightly update.sh --unattended run.",
+  "extends": ["config:recommended"],
+  "labels": ["dependencies"],
+  "timezone": "Europe/Copenhagen",
+  "minimumReleaseAge": "3 days",
+  "minimumReleaseAgeBehaviour": "timestamp-optional",
+  "internalChecksFilter": "strict",
+  "separateMultipleMajor": true,
+  "prConcurrentLimit": 10,
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "labels": ["dependencies", "security"]
+  },
+  "git-submodules": {
+    "enabled": true
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": true,
+    "schedule": ["* 0-5 1 * *"]
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "image/tag (and tools_image/tools_tag) pairs in deploy.yaml.example. update.sh copies each tag into the operator's YAML.",
+      "managerFilePatterns": ["/(^|/)deploy\\.yaml\\.example$/"],
+      "matchStrings": [
+        "\\n[ \\t]*(?:#[ \\t]*)?(?:tools_)?image:[ \\t]*(?<depName>[^\\s#\"']+)[^\\n]*\\n[ \\t]*(?:tools_)?tag:[ \\t]*[\"']?(?<currentValue>[^\\s#\"']+)[\"']?"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Patch, minor and digest updates merge on their own once CI passes and the release is three days old.",
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin", "pinDigest"],
+      "automerge": true
+    },
+    {
+      "description": "Images pinned as latest@sha256 move together in one pull request.",
+      "matchDatasources": ["docker"],
+      "matchUpdateTypes": ["digest"],
+      "groupName": "container image digests"
+    },
+    {
+      "description": "In 0.x a minor version may break things. A person reviews it.",
+      "matchCurrentVersion": "/^v?0\\./",
+      "matchUpdateTypes": ["minor"],
+      "automerge": false,
+      "addLabels": ["needs-review"]
+    },
+    {
+      "description": "Kanidm server and tools move together. Kanidm only upgrades one minor version at a time and migrates its database, so each minor is a separate reviewed pull request.",
+      "matchPackageNames": ["/(^|/)kanidm/(server|tools)$/"],
+      "groupName": "Kanidm",
+      "separateMultipleMinor": true
+    },
+    {
+      "matchPackageNames": ["/(^|/)kanidm/(server|tools)$/"],
+      "matchUpdateTypes": ["minor"],
+      "automerge": false,
+      "addLabels": ["needs-review"]
+    },
+    {
+      "description": "Stalwart 0.x minor versions migrate the data store: one at a time, reviewed.",
+      "matchPackageNames": ["/(^|/)stalwartlabs/stalwart$/"],
+      "separateMultipleMinor": true
+    },
+    {
+      "description": "A new Postgres major cannot read the old data directory. That upgrade needs a dump and restore, not a tag bump.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["/(^|/)postgres$/"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": "Nextcloud Talk (AIO) tags are build timestamps: YYYYMMDD_HHMMSS.",
+      "matchPackageNames": ["/(^|/)nextcloud-releases/aio-talk$/"],
+      "versioning": "regex:^(?<major>\\d{4})(?<minor>\\d{4})_(?<patch>\\d{6})$"
+    },
+    {
+      "description": "Collabora CODE tags have up to five numeric parts.",
+      "matchPackageNames": ["/(^|/)collabora/code$/"],
+      "versioning": "loose"
+    },
+    {
+      "description": "easydeploy-lib changes behaviour on every server, so a person merges each bump.",
+      "matchManagers": ["git-submodules"],
+      "automerge": false,
+      "groupName": "submodules"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions"
+    },
+    {
+      "matchManagers": ["pep621"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "Python dependencies (non-major)"
+    }
+  ]
+}

@@ -97,6 +97,33 @@ Later changes: edit `kits/opencloud.yaml` (or `engine.yaml`) and run `bash apply
 
 **Updates:** `bash update.sh` pulls the engine and enabled kit repos, merges new `tag` / `tools_tag` pins from each kit’s `deploy.yaml.example` into your operator YAML (`kits/*.yaml` or kit `deploy.yaml`), then runs each kit’s `update.sh` (and shared Caddy). Each repo keeps `<state_dir>/update.lock` (git SHA, `deploy.yaml` / identity sidecars, image IDs). If nothing changed, the engine prints `Nothing to update` and does not restart containers. Default output is a short summary (git, image pins, apply result, Docker). Use `--verbose` for the full kit/Compose log, `--force` to ignore locks, `--skip-tags` to keep your current image pins, or `--skip-git` when not using git checkouts.
 
+**Automatic updates:** `apply.sh` and `update.sh` install `easydeploy-update.timer`, which runs `bash update.sh --unattended` every night at 04:00 (plus up to 30 minutes of random delay), after the 03:00 backup. It is on by default; turn it off or move it in `engine.yaml`:
+
+```yaml
+auto_update:
+  enabled: true
+  calendar: "*-*-* 04:00:00"
+  randomized_delay: 30min
+```
+
+The unattended run:
+
+- runs as the user who owns the engine checkout, not root;
+- takes `~/.easydeploy-engine.lock`, the same lock OpenComp platform jobs hold, so it never applies on top of another run (if the lock stays busy for an hour it skips and exits 75);
+- waits while the engine backup service is still running;
+- keeps a checkout that is pinned to a commit (detached `HEAD`, as OpenComp does with `ENGINE_GIT_COMMIT`) on that commit, and still updates kits and images;
+- removes dangling images afterwards so repeated pulls do not fill the disk;
+- writes `.easydeploy-engine/auto-update.json` (`outcome` is `ok`, `failed`, or `skipped`).
+
+```bash
+systemctl list-timers easydeploy-update.timer
+journalctl -u easydeploy-update --since yesterday
+cat .easydeploy-engine/auto-update.json
+sudo systemctl start easydeploy-update.service   # run it now
+```
+
+Kit repositories pin their app images in `deploy.yaml.example` and compose files; Renovate opens pull requests for new versions (see each kit's `renovate.json`, which extends [`renovate/easydeploy.json`](renovate/easydeploy.json)). Patch, minor, and digest updates merge on their own once CI passes and the release is three days old; major versions, and upgrades that need a data migration (Kanidm and Stalwart minor versions, Postgres majors), wait for a person. Whatever lands on `master` reaches every server on its next nightly run.
+
 **Try a branch** on a machine that is already deployed:
 
 ```bash
