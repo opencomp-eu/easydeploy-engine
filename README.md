@@ -122,7 +122,7 @@ cat .easydeploy-engine/auto-update.json
 sudo systemctl start easydeploy-update.service   # run it now
 ```
 
-Kit repositories pin their app images in `deploy.yaml.example` and compose files; Renovate opens pull requests for new versions (see each kit's `renovate.json`, which extends [`renovate/easydeploy.json`](renovate/easydeploy.json)). Patch, minor, and digest updates merge on their own once CI passes and the release is three days old; major versions, and upgrades that need a data migration (Kanidm and Stalwart minor versions, Postgres majors), wait for a person. Whatever lands on `master` reaches every server on its next nightly run.
+Kit repositories pin their app images in `deploy.yaml.example` and compose files; a self-hosted Renovate run (a GitHub Actions workflow in this repository, signed in as OpenComp's own GitHub App, see [docs/renovate.md](docs/renovate.md)) opens pull requests for new versions. Each kit's `renovate.json` extends [`renovate/easydeploy.json`](renovate/easydeploy.json). Patch, minor, and digest updates merge on their own once CI passes and the release is three days old; major versions, and upgrades that need a data migration (Kanidm and Stalwart minor versions, Postgres majors), wait for a person. Whatever lands on `master` reaches every server on its next nightly run.
 
 **Try a branch** on a machine that is already deployed:
 

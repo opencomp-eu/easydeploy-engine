@@ -8,6 +8,7 @@
   "minimumReleaseAgeBehaviour": "timestamp-optional",
   "internalChecksFilter": "strict",
   "separateMultipleMajor": true,
+  "platformAutomerge": false,
   "prConcurrentLimit": 10,
   "osvVulnerabilityAlerts": true,
   "vulnerabilityAlerts": {
